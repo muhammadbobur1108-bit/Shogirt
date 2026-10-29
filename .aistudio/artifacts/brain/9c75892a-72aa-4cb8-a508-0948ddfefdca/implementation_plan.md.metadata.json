@@ -1,0 +1,6 @@
+{
+  "summary": "\"Etiketkalar / Shtrix-kod\" (Barcode & Label Generator) modulini Chust Textile ERP tizimiga to'liq integratsiya qilish rejasi. Reja o'z ichiga Code 128 va GS1-128 (SSCC) kodlash algoritmini, 40x58 mm etiketka PDF generatorini (pdf-lib + fontkit + Kirill shrift), ZXing va Tesseract.js parallel o'qish qatlamini, tahrirlanadigan interaktiv jadvalni, Excel import/eksportni va IndexedDB ma'lumotlar qatlamini oladi.",
+  "updatedAt": "2026-10-20T07:15:15.020343304Z",
+  "requestFeedback": true,
+  "userFacing": true
+}

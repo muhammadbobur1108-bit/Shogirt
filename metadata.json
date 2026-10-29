@@ -1,0 +1,6 @@
+{
+  "name": "Tex ERP",
+  "description": "To'qimachilik va tikuvchilik korxonalari uchun buyurtmalar va ishlab chiqarishni boshqarish tizimi (ERP)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
