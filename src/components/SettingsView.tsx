@@ -849,15 +849,6 @@ export default function SettingsView({
               >
                 {setT.resetBtn}
               </button>
-
-              <button
-                onClick={() => {
-                  onLoadDemoData?.();
-                }}
-                className="flex-1 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 rounded-xl font-bold transition-all cursor-pointer text-center"
-              >
-                {setT.loadDemoBtn}
-              </button>
             </div>
           </div>
 

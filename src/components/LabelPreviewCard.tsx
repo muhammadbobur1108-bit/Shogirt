@@ -193,13 +193,13 @@ export default function LabelPreviewCard({
 
                 {/* Values */}
                 <text x="110" y="770" textAnchor="middle" fontSize="25" fontWeight="bold" fill="#000000">
-                  {rawColors[0] || item.color || 'Зеленый'}
+                  {rawColors[0] || item.color || ''}
                 </text>
                 <text x="250" y="770" textAnchor="middle" fontSize="26" fontWeight="bold" fill="#000000">
-                  {item.size || '104'}
+                  {item.size || ''}
                 </text>
                 <text x="390" y="770" textAnchor="middle" fontSize="25" fontWeight="bold" fill="#000000">
-                  {item.rost || '170-176'}
+                  {item.rost || ''}
                 </text>
               </g>
             </g>

@@ -285,6 +285,8 @@ export default function OrderStatusChart({
                   outerRadius={80}
                   paddingAngle={4}
                   dataKey="value"
+                  isAnimationActive={true}
+                  animationDuration={700}
                   onClick={(entry: any) => {
                     if (entry && entry.key && entry.key !== 'none' && onSelectStatusFilter) {
                       onSelectStatusFilter(entry.key as OrderStatus);
@@ -411,7 +413,7 @@ export default function OrderStatusChart({
                     return null;
                   }}
                 />
-                <Bar dataKey="qty" radius={[6, 6, 0, 0]}>
+                <Bar dataKey="qty" radius={[6, 6, 0, 0]} isAnimationActive={true} animationDuration={750}>
                   {stageData.map((entry, index) => (
                     <Cell key={`bar-cell-${index}`} fill={entry.color} />
                   ))}

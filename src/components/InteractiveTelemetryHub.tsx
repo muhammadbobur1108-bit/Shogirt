@@ -59,10 +59,12 @@ interface InteractiveTelemetryHubProps {
 interface MachineTelemetry {
   id: string;
   name: string;
-  code: string;
-  department: string;
+  codeUz: string;
+  codeRu: string;
+  departmentUz: string;
+  departmentRu: string;
   status: 'RUNNING' | 'IDLE' | 'MAINTENANCE' | 'WARNING';
-  age: string;
+  ageMonths: number;
   installDate: string;
   lastInspection: string;
   nextInspection: string;
@@ -84,10 +86,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-1',
     name: 'Gerber Automatic Cutter X1',
-    code: 'Bichuv K-01',
-    department: 'Бичув цехи',
+    codeUz: 'Bichuv K-01',
+    codeRu: 'Раскрой К-01',
+    departmentUz: 'Бичув цехи',
+    departmentRu: 'Раскройный цех',
     status: 'RUNNING',
-    age: '18 oylik',
+    ageMonths: 18,
     installDate: '15.04.2024',
     lastInspection: '12.10.2026',
     nextInspection: '12.11.2026',
@@ -107,10 +111,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-2',
     name: 'Juki Overlock Pro S-900',
-    code: 'Tikuv L-04',
-    department: 'Тикув цехи',
+    codeUz: 'Tikuv L-04',
+    codeRu: 'Пошив L-04',
+    departmentUz: 'Тикув цехи',
+    departmentRu: 'Швейный цех (Оверлок)',
     status: 'RUNNING',
-    age: '24 oylik',
+    ageMonths: 24,
     installDate: '20.10.2023',
     lastInspection: '10.10.2026',
     nextInspection: '25.11.2026',
@@ -130,10 +136,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-3',
     name: 'Brother 5-Ip Rasshivalka T-12',
-    code: 'Tikuv L-08',
-    department: 'Тикув цехи',
+    codeUz: 'Tikuv L-08',
+    codeRu: 'Пошив L-08',
+    departmentUz: 'Тикуv цехи',
+    departmentRu: 'Швейный цех (Распошивалка)',
     status: 'RUNNING',
-    age: '12 oylik',
+    ageMonths: 12,
     installDate: '01.11.2024',
     lastInspection: '08.10.2026',
     nextInspection: '08.11.2026',
@@ -153,10 +161,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-4',
     name: 'MHM Synchroprint 8-Rangli Karusel',
-    code: 'Pechat P-01',
-    department: 'Печат бўлими',
+    codeUz: 'Pechat P-01',
+    codeRu: 'Печать P-01',
+    departmentUz: 'Печат бўлими',
+    departmentRu: 'Печатный цех (Шелкография)',
     status: 'RUNNING',
-    age: '30 oylik',
+    ageMonths: 30,
     installDate: '10.05.2023',
     lastInspection: '01.10.2026',
     nextInspection: '15.11.2026',
@@ -176,10 +186,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-5',
     name: 'Tajima 12-Boshli Avtomatik Kashta',
-    code: 'Kashta K-02',
-    department: 'Кашта бўлими',
+    codeUz: 'Kashta K-02',
+    codeRu: 'Вышивка K-02',
+    departmentUz: 'Кашта бўлими',
+    departmentRu: 'Вышивальный цех',
     status: 'RUNNING',
-    age: '15 oylik',
+    ageMonths: 15,
     installDate: '12.08.2024',
     lastInspection: '14.10.2026',
     nextInspection: '28.11.2026',
@@ -199,10 +211,12 @@ const INITIAL_MACHINES: MachineTelemetry[] = [
   {
     id: 'm-6',
     name: 'L-Sealer & Termo Shrink Qadoqlash',
-    code: 'Qadoq Q-01',
-    department: 'Қадоқлаш цехи',
+    codeUz: 'Qadoq Q-01',
+    codeRu: 'Упаковка Q-01',
+    departmentUz: 'Қадоқлаш цехи',
+    departmentRu: 'Упаковочный цех',
     status: 'RUNNING',
-    age: '20 oylik',
+    ageMonths: 20,
     installDate: '05.02.2024',
     lastInspection: '18.10.2026',
     nextInspection: '18.11.2026',
@@ -575,7 +589,7 @@ export default function InteractiveTelemetryHub({
                       </div>
                       <div>
                         <div className="text-xl sm:text-2xl font-black text-white font-mono">
-                          {totalOrdersCount} ta
+                          {totalOrdersCount} {lang === 'ru' ? 'заказов' : 'ta'}
                         </div>
                         <div className="text-[11px] text-slate-300 font-bold tracking-wide">
                           {lang === 'uz' ? 'Jami Buyurtmalar' : 'Всего заказов (Заказы)'}
@@ -583,7 +597,7 @@ export default function InteractiveTelemetryHub({
                       </div>
                     </div>
                     <span className="text-xs font-mono text-purple-300 font-bold bg-purple-950/90 px-2 py-1 rounded-lg border border-purple-500/30">
-                      {activeOrdersCount} faol
+                      {activeOrdersCount} {lang === 'ru' ? 'активно' : 'faol'}
                     </span>
                   </div>
                 </div>
@@ -618,12 +632,12 @@ export default function InteractiveTelemetryHub({
                     </h3>
 
                     <div className="text-[10px] text-slate-300 font-mono mt-1 bg-black/40 px-2.5 py-0.5 rounded-full border border-cyan-500/30">
-                      {totalOrderedPcs.toLocaleString()} DONA
+                      {totalOrderedPcs.toLocaleString()} {lang === 'ru' ? 'ШТ' : 'DONA'}
                     </div>
 
                     <div className="mt-2 text-[10px] font-mono text-emerald-400 flex items-center gap-1 font-bold">
                       <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse" />
-                      POTOK: {totalSewnPcs.toLocaleString()}
+                      {lang === 'ru' ? 'В ПОШИВЕ' : 'POTOK'}: {totalSewnPcs.toLocaleString()} {lang === 'ru' ? 'шт' : ''}
                     </div>
                   </div>
                 </div>
@@ -652,7 +666,7 @@ export default function InteractiveTelemetryHub({
                       </div>
                       <div>
                         <div className="text-xl sm:text-2xl font-black text-white font-mono">
-                          {boxes.length > 0 ? boxes.length : '142'} ta
+                          {boxes.length} {lang === 'ru' ? 'кор.' : 'ta'}
                         </div>
                         <div className="text-[11px] text-slate-300 font-bold tracking-wide">
                           {lang === 'uz' ? 'Tayyor Qutilar (Pallet)' : 'Готовые коробки (Паллеты)'}
@@ -736,7 +750,9 @@ export default function InteractiveTelemetryHub({
                   <span>Inventory Balance Upper Limit Warning</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed font-mono">
-                  Barcha xomashyo qoldiqlari minimal zaxira chegarasidan yuqori darajada. Yetishmovchilik aniqlanmadi.
+                  {lang === 'ru' 
+                    ? 'Все складские остатки выше минимального порога. Дефицита сырья не обнаружено.' 
+                    : "Barcha xomashyo qoldiqlari minimal zaxira chegarasidan yuqori darajada. Yetishmovchilik aniqlanmadi."}
                 </p>
               </div>
 
@@ -746,7 +762,9 @@ export default function InteractiveTelemetryHub({
                   <span>Real-Time Pipeline Status</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed font-mono">
-                  Bichuvdan tikuvga uzatish tezligi: 1,450 dona/kun. Rejadagi og'ish: 0.8% (me'yorda).
+                  {lang === 'ru'
+                    ? `Текущий объем в раскрое: ${totalCutPcs.toLocaleString()} шт. В швейном потоке: ${totalSewnPcs.toLocaleString()} шт.`
+                    : `Bichuvdan tikuvga uzatish tezligi: ${totalCutPcs.toLocaleString()} dona. Potokda: ${totalSewnPcs.toLocaleString()} dona.`}
                 </p>
               </div>
 
@@ -756,7 +774,9 @@ export default function InteractiveTelemetryHub({
                   <span>Traceability & Markirovka Log</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed font-mono">
-                  100% qutilar va tovarlar GS1-128 va Chestny Znak kodlari bilan jihozlangan.
+                  {lang === 'ru'
+                    ? `100% коробок (${boxes.length} шт) и партий оснащены штрихкодами GS1-128 и Честный Знак.`
+                    : `100% qutilar (${boxes.length} ta) va tovarlar GS1-128 va Chestny Znak kodlari bilan jihozlangan.`}
                 </p>
               </div>
 
@@ -924,7 +944,7 @@ export default function InteractiveTelemetryHub({
               <div className="flex items-center justify-between pb-3 border-b border-cyan-500/20">
                 <span className="text-xs font-black text-cyan-200 uppercase tracking-wider flex items-center gap-1.5">
                   <Cpu className="w-4 h-4 text-cyan-400" />
-                  <span>Uskunalar Ro'yxati</span>
+                  <span>{lang === 'ru' ? 'Список оборудования (Цех)' : "Uskunalar Ro'yxati"}</span>
                 </span>
                 <span className="text-[10px] font-mono text-emerald-400 bg-emerald-950/80 px-2 py-0.5 rounded-full border border-emerald-500/30 font-bold">
                   {INITIAL_MACHINES.length} {lang === 'ru' ? 'АКТИВНО' : 'FAOL'}
@@ -935,6 +955,7 @@ export default function InteractiveTelemetryHub({
               <div className="space-y-2 overflow-y-auto max-h-[580px] pr-1">
                 {INITIAL_MACHINES.map((mach, idx) => {
                   const isSelected = mach.id === selectedMachineId;
+                  const machCode = lang === 'ru' ? mach.codeRu : mach.codeUz;
                   return (
                     <div
                       key={mach.id}
@@ -960,7 +981,7 @@ export default function InteractiveTelemetryHub({
                             {mach.name.split(' ')[0]} {mach.name.split(' ')[1] || ''}
                           </h6>
                           <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
-                            <span className="text-cyan-300">{mach.code}</span>
+                            <span className="text-cyan-300">{machCode}</span>
                             <span>•</span>
                             <span className="text-emerald-400 font-bold">{mach.efficiency}%</span>
                           </div>
@@ -993,11 +1014,11 @@ export default function InteractiveTelemetryHub({
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-cyan-400 font-mono text-xs font-bold uppercase tracking-wider">
-                      {selectedMachine.department}
+                      {lang === 'ru' ? selectedMachine.departmentRu : selectedMachine.departmentUz}
                     </span>
                     <span className="text-slate-600">•</span>
                     <span className="text-xs text-slate-300 font-mono font-bold">
-                      {selectedMachine.code}
+                      {lang === 'ru' ? selectedMachine.codeRu : selectedMachine.codeUz}
                     </span>
                   </div>
                   <h3 className="text-lg sm:text-xl font-black text-white tracking-tight mt-0.5">
@@ -1011,7 +1032,7 @@ export default function InteractiveTelemetryHub({
                     <span>STATUS: {selectedMachine.status}</span>
                   </div>
                   <div className="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 text-xs font-mono">
-                    {lang === 'ru' ? 'Возраст:' : 'Yosh:'} <strong>{selectedMachine.age}</strong>
+                    {lang === 'ru' ? 'Возраст:' : 'Yosh:'} <strong>{selectedMachine.ageMonths} {lang === 'ru' ? 'мес.' : 'oylik'}</strong>
                   </div>
                   <div className="px-3 py-1.5 rounded-xl bg-cyan-950/80 border border-cyan-500/30 text-cyan-300 text-xs font-mono">
                     {lang === 'ru' ? 'След. техосмотр:' : 'Navbatdagi tekshiruv:'} <strong>{selectedMachine.nextInspection}</strong>
@@ -1124,7 +1145,7 @@ export default function InteractiveTelemetryHub({
                 <div className="bg-[#060e22] border border-amber-500/30 p-5 rounded-3xl shadow-xl flex flex-col items-center justify-center text-center">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-amber-300 uppercase tracking-wider mb-1">
                     <Zap className="w-3.5 h-3.5 text-amber-400" />
-                    <span>RPM (TEZLIK)</span>
+                    <span>{lang === 'ru' ? 'СКОРОСТЬ (RPM)' : 'RPM (TEZLIK)'}</span>
                   </div>
 
                   <div className="relative w-32 h-24 flex items-center justify-center mt-2">

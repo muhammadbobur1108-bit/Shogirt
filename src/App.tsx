@@ -39,6 +39,7 @@ import BarcodeLabelsView from './components/BarcodeLabelsView';
 import TexLogo from './components/TexLogo';
 import InteractiveTelemetryHub from './components/InteractiveTelemetryHub';
 import NotificationCenter from './components/NotificationCenter';
+import { checkCurrentSession, logoutUser, getAuthHeaders } from './lib/authClient';
 
 // Icons
 import { 
@@ -79,39 +80,66 @@ export default function App() {
   const [customers, setCustomers] = useState<Customer[]>(INITIAL_CUSTOMERS);
   const [defects, setDefects] = useState<DefectItem[]>(INITIAL_DEFECTS);
   const [printTasks, setPrintTasks] = useState<PrintTask[]>(INITIAL_PRINT_TASKS);
-  const [users, setUsers] = useState<AppUser[]>(INITIAL_USERS);
+  const [users, setUsers] = useState<AppUser[]>(() => {
+    try {
+      const saved = localStorage.getItem('chust_erp_users');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      console.warn('Failed to load users from storage:', e);
+    }
+    return INITIAL_USERS;
+  });
   const [boxes, setBoxes] = useState<WarehouseBox[]>(INITIAL_BOXES);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(INITIAL_AUDIT_LOGS);
   
-  // Auth state: Default to Super Admin to skip login screen and avoid requiring passwords/PINs
-  const [currentUser, setCurrentUser] = useState<AppUser | null>(INITIAL_USERS[0]);
+  // Auth state: Strictly check session or remembered device via HttpOnly cookies and server verification
+  const [isCheckingSession, setIsCheckingSession] = useState<boolean>(true);
+  const [currentUser, setCurrentUser] = useState<AppUser | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function verifyBackendSession() {
+      try {
+        const res = await checkCurrentSession();
+        if (isMounted) {
+          if (res.authenticated && res.user) {
+            setCurrentUser(res.user);
+          } else {
+            // Also check client cache if server is restarting or offline
+            try {
+              const sess = sessionStorage.getItem('chust_erp_session_user');
+              const rem = localStorage.getItem('chust_erp_remembered_user');
+              const userObj = sess ? JSON.parse(sess) : (rem ? JSON.parse(rem) : null);
+              if (userObj && userObj.id) {
+                setCurrentUser(userObj);
+              } else {
+                setCurrentUser(null);
+              }
+            } catch {
+              setCurrentUser(null);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Session check failed:', err);
+      } finally {
+        if (isMounted) {
+          setIsCheckingSession(false);
+        }
+      }
+    }
+    verifyBackendSession();
+    return () => { isMounted = false; };
+  }, []);
 
   // Cross-tab order routing state
   const [selectedOrderForModal, setSelectedOrderForModal] = useState<Order | null>(null);
 
   // Notification Center & Toast states
-  const [notifications, setNotifications] = useState<SystemNotification[]>([
-    {
-      id: 'notif-demo-1',
-      title: "Заказ Готов к Отгрузке 🎉",
-      message: "Заказ LC Waikiki (Футболка Поло) готов на 100% и упакован на складе.",
-      type: 'success',
-      createdAt: '10 мин назад',
-      read: false,
-      statusTo: 'tayyor',
-      orderId: INITIAL_ORDERS[0]?.id
-    },
-    {
-      id: 'notif-demo-2',
-      title: "Раскрой завершен",
-      message: "Заказ Terra Pro (Худи) прошел раскройный цех и передан в печатный цех.",
-      type: 'info',
-      createdAt: '25 мин назад',
-      read: true,
-      statusTo: 'jarayonda',
-      orderId: INITIAL_ORDERS[1]?.id
-    }
-  ]);
+  const [notifications, setNotifications] = useState<SystemNotification[]>([]);
 
   const [toasts, setToasts] = useState<SystemNotification[]>([]);
 
@@ -403,14 +431,56 @@ export default function App() {
   };
 
   const handleAddUser = (newUser: AppUser) => {
-    setUsers(prev => [...prev, newUser]);
+    setUsers(prev => {
+      const updated = [...prev, newUser];
+      try {
+        localStorage.setItem('chust_erp_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Storage error on user add:', e);
+      }
+      return updated;
+    });
     logAudit('CREATE', 'Система', `Пользователь ${newUser.fullName}`, newUser.id, `Yangi xodim qo'shildi (${newUser.role})`, null, newUser);
   };
 
   const handleUpdateUser = (updatedUser: AppUser) => {
     const oldU = users.find(u => u.id === updatedUser.id);
-    setUsers(prev => prev.map(u => u.id === updatedUser.id ? updatedUser : u));
+    setUsers(prev => {
+      const updated = prev.map(u => u.id === updatedUser.id ? updatedUser : u);
+      try {
+        localStorage.setItem('chust_erp_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Storage error on user update:', e);
+      }
+      return updated;
+    });
+    // Keep active session in sync if current user's profile or permissions changed
+    if (currentUser?.id === updatedUser.id) {
+      setCurrentUser(updatedUser);
+      try {
+        sessionStorage.setItem('chust_erp_session_user', JSON.stringify(updatedUser));
+        if (localStorage.getItem('chust_erp_remembered_user')) {
+          localStorage.setItem('chust_erp_remembered_user', JSON.stringify(updatedUser));
+        }
+      } catch {}
+    }
     logAudit('UPDATE', 'Система', `Пользователь ${updatedUser.fullName}`, updatedUser.id, `Foydalanuvchi ma'lumotlari yangilandi`, oldU, updatedUser);
+  };
+
+  const handleDeleteUser = (id: string) => {
+    const target = users.find(u => u.id === id);
+    setUsers(prev => {
+      const updated = prev.filter(u => u.id !== id);
+      try {
+        localStorage.setItem('chust_erp_users', JSON.stringify(updated));
+      } catch (e) {
+        console.warn('Storage error on user delete:', e);
+      }
+      return updated;
+    });
+    if (target) {
+      logAudit('DELETE', 'Система', `Пользователь ${target.fullName}`, id, `Xodim tizimdan o'chirildi`, target, null);
+    }
   };
 
   const handleDashboardOrderSelect = (order: Order) => {
@@ -447,17 +517,66 @@ export default function App() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLoginSuccess = (user: AppUser, rememberMe?: boolean) => {
+    setCurrentUser(user);
+    try {
+      sessionStorage.setItem('chust_erp_session_user', JSON.stringify(user));
+      if (rememberMe) {
+        localStorage.setItem('chust_erp_remembered_user', JSON.stringify(user));
+      } else {
+        localStorage.removeItem('chust_erp_remembered_user');
+      }
+    } catch (e) {
+      console.warn('Storage error on login:', e);
+    }
+
+    logAudit('CREATE', 'Тизим', `Кириш: ${user.fullName}`, user.id, `Foydalanuvchi tizimga kirdi (${user.role})`, null, null);
+    addNotification(
+      lang === 'ru' ? `Добро пожаловать, ${user.fullName}!` : `Xush kelibsiz, ${user.fullName}!`,
+      lang === 'ru' ? 'Вы успешно авторизовались в системе.' : 'Tizimga muvaffaqiyatli kirdingiz.',
+      'success'
+    );
+
+    // Sync users to backend if administrator
+    if (user.role === 'super_admin' || user.role === 'admin') {
+      fetch('/api/auth/sync-users', {
+        method: 'POST',
+        credentials: 'include',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ users }),
+      }).catch(e => console.warn('User sync error:', e));
+    }
+  };
+
+  const handleLogout = async () => {
+    if (currentUser) {
+      logAudit('DELETE', 'Тизим', `Чиқиш: ${currentUser.fullName}`, currentUser.id, `Foydalanuvchi tizimdan chiqdi`, null, null);
+    }
+    await logoutUser();
     setCurrentUser(null);
   };
+
+  // While verifying cryptographic HttpOnly session cookie on load
+  if (isCheckingSession) {
+    return (
+      <div className="min-h-screen bg-[#030712] text-white flex flex-col items-center justify-center p-6 space-y-4">
+        <TexLogo size="lg" variant="light" />
+        <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-800 px-5 py-2.5 rounded-2xl text-cyan-400 font-mono text-xs shadow-xl">
+          <div className="w-4 h-4 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
+          <span>XAVFSIZ SESSIYA TEKSHIRILMOQDA (256-BIT SSL)...</span>
+        </div>
+      </div>
+    );
+  }
 
   // If user is not authenticated, display login flow
   if (!currentUser) {
     return (
       <LoginView 
         users={users.filter(u => u.activeStatus)} 
-        onLoginSuccess={setCurrentUser} 
+        onLoginSuccess={handleLoginSuccess} 
         lang={lang} 
+        onLanguageChange={setLang}
       />
     );
   }
@@ -688,7 +807,7 @@ export default function App() {
               users={users}
               onAddUser={handleAddUser}
               onUpdateUser={handleUpdateUser}
-              onDeleteUser={(id) => setUsers(prev => prev.filter(u => u.id !== id))}
+              onDeleteUser={handleDeleteUser}
               currentUser={currentUser}
               orders={orders}
               inventory={inventory}
@@ -732,7 +851,7 @@ export default function App() {
               users={users}
               onAddUser={handleAddUser}
               onUpdateUser={handleUpdateUser}
-              onDeleteUser={(id) => setUsers(prev => prev.filter(u => u.id !== id))}
+              onDeleteUser={handleDeleteUser}
               currentUser={currentUser}
               orders={orders}
               inventory={inventory}

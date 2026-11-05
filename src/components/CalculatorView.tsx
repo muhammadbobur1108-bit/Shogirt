@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { InventoryItem, Order } from '../types';
 import { TRANSLATIONS, Language } from '../locales';
+import { getAuthHeaders } from '../lib/authClient';
 import { 
   Calculator, 
   HelpCircle, 
@@ -458,7 +459,11 @@ export default function CalculatorView({ inventory, orders, lang }: CalculatorVi
 
       const response = await fetch('/api/ai/advise', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        headers: {
+          ...getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify({ prompt: textToSend, context, lang })
       });
 

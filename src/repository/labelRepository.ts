@@ -78,27 +78,41 @@ export class IndexedDBLabelRepository implements ILabelRepository {
     }
   }
 
+  private filterOutDemoItems(items: BarcodeItem[]): BarcodeItem[] {
+    return (items || []).filter(item => {
+      if (!item) return false;
+      if (item.id && (item.id.startsWith('demo-') || item.id.startsWith('demo_'))) return false;
+      if (item.notes && item.notes.includes('Namuna:')) return false;
+      if (item.fileName && (item.fileName.startsWith('namuna_') || item.fileName === 'etiketka_80x50.png')) return false;
+      return true;
+    });
+  }
+
   async getAll(): Promise<BarcodeItem[]> {
     try {
       const db = await this.openDB();
-      return new Promise((resolve, reject) => {
+      return new Promise((resolve) => {
         const tx = db.transaction(STORE_NAME, 'readonly');
         const store = tx.objectStore(STORE_NAME);
         const req = store.getAll();
 
         req.onsuccess = () => {
           const results = req.result as BarcodeItem[];
-          if (!results || results.length === 0) {
-            resolve(this.getLocalCache());
-          } else {
-            resolve(results);
+          const list = (!results || results.length === 0) ? this.getLocalCache() : results;
+          const clean = this.filterOutDemoItems(list);
+          if (clean.length !== list.length) {
+            this.saveAll(clean).catch(() => {});
           }
+          resolve(clean);
         };
 
-        req.onerror = () => resolve(this.getLocalCache());
+        req.onerror = () => {
+          const clean = this.filterOutDemoItems(this.getLocalCache());
+          resolve(clean);
+        };
       });
     } catch {
-      return this.getLocalCache();
+      return this.filterOutDemoItems(this.getLocalCache());
     }
   }
 

@@ -30,6 +30,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { getAuthHeaders } from '../lib/authClient';
 
 // ==============================================================================
 // MODUL INTERFEYSLARI VA TIP TAVSIFLARI
@@ -202,71 +203,7 @@ export default function NakladnoyView({ currentUser, onLogAudit }: NakladnoyView
     } catch (e) {
       console.warn("LocalStorage yuklashda xatolik:", e);
     }
-    // Boshlang'ich namuna nakladnoy (foydalanuvchi darhol ko'rishi uchun)
-    const initialSampleRows: BagRowItem[] = [];
-    SAMPLE_BAGS_DATA.forEach((bag, bIdx) => {
-      const groupId = `saved_init_bag_${bIdx}`;
-      bag.colors.forEach((col, cIdx) => {
-        const isFirst = cIdx === 0;
-        initialSampleRows.push({
-          id: `${groupId}_${cIdx}`,
-          bagGroupId: groupId,
-          isFirstOfGroup: isFirst,
-          seqNumber: 89 + initialSampleRows.length,
-          bagNumber: parseInt(bag.tara.split('/')[0].trim(), 10) || (bIdx + 1),
-          taraRaw: bag.tara,
-          orderNumber: bag.order,
-          modelCode: bag.model,
-          productName: bag.name,
-          color: col.color,
-          quantity: col.qty,
-          tara: isFirst ? 1 : 0,
-          grossWeight: isFirst ? bag.weight : '',
-          weightUnsure: false,
-          imageUrl: bag.img,
-          readMethod: 'gemini',
-          warnings: [],
-        });
-      });
-    });
-
-    const initialWaybill: SavedWaybill = {
-      id: 'wb-archive-1041',
-      waybillNumber: '1041',
-      waybillDate: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-      sourceWarehouse: 'Склад готовой продукции',
-      destination: 'г. Москва (Склад Wildberries)',
-      orderNumber: 'MOS-509.3',
-      totalBags: 4,
-      totalQty: 270,
-      totalGrossWeight: 63.9,
-      directorName: 'A. Xoliqov',
-      warehouseManager: 'Q. Sobirov',
-      senderName: 'I. Karimov',
-      recipientName: 'M. Petrov (Haydovchi)',
-      rows: initialSampleRows,
-      settings: {
-        startSeq: 89,
-        waybillNumber: '1041',
-        waybillDate: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-        sourceWarehouse: 'Склад готовой продукции',
-        destination: 'г. Москва (Склад Wildberries)',
-        directorName: 'A. Xoliqov',
-        warehouseManager: 'Q. Sobirov',
-        senderName: 'I. Karimov',
-        recipientName: 'M. Petrov (Haydovchi)',
-        autoExtractBagNumber: true,
-        weightOnlyFirstRow: true,
-      },
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      updatedAt: new Date(Date.now() - 86400000).toISOString(),
-    };
-
-    try {
-      localStorage.setItem('chust_saved_waybills', JSON.stringify([initialWaybill]));
-    } catch (e) {}
-
-    return [initialWaybill];
+    return [];
   });
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -302,7 +239,11 @@ export default function NakladnoyView({ currentUser, onLogAudit }: NakladnoyView
           // Server API ga yuborish
           const response = await fetch('/api/labels/read', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            headers: {
+              ...getAuthHeaders(),
+              'Content-Type': 'application/json',
+            },
             body: JSON.stringify({
               image: base64Data,
               fileName: file.name,
@@ -952,15 +893,6 @@ export default function NakladnoyView({ currentUser, onLogAudit }: NakladnoyView
             Saqlanganlar ({savedWaybills.length})
           </button>
 
-          {/* Namuna yuk rasmlari (Demo) */}
-          <button
-            onClick={handleLoadDemoData}
-            className="px-3 py-2 rounded-xl text-xs font-semibold bg-amber-50 text-amber-700 hover:bg-amber-100 border border-amber-200 flex items-center gap-1.5 transition-colors"
-            title="Sinov uchun tayyor markirovka rasmlari va ma'lumotlarini yuklash"
-          >
-            <Package className="w-4 h-4 text-amber-600" />
-            Demo qoplar
-          </button>
 
           {/* Qo'lda qop qo'shish */}
           <button

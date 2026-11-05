@@ -20,11 +20,7 @@ import {
   Eye, 
   RefreshCw, 
   SlidersHorizontal, 
-  Copy, 
   Check, 
-  FileUp, 
-  Sparkles,
-  HelpCircle,
   Settings,
   Globe,
   Server,
@@ -40,79 +36,8 @@ import { importBarcodesFromExcel, exportBarcodesToExcel } from '../lib/barcode/e
 import { labelRepository } from '../repository/labelRepository';
 import LabelPreviewCard from './LabelPreviewCard';
 
-// Demo namunalar (darhol sinash uchun)
-const DEMO_ITEMS: BarcodeItem[] = [
-  {
-    id: 'demo-photo-match',
-    fileName: 'etiketka_80x50.png',
-    rawCode: '046602509310827968',
-    sscc: '046602509310827968',
-    formattedCode: '(00)046602509310827968',
-    color: 'Зеленый',
-    size: '104',
-    rost: '170-176',
-    copies: 4,
-    status: 'OK',
-    notes: 'Namuna: 80x50 mm etiketka (Rasm bo\'yicha: Цвет: Зеленый, Размер: 104, Рост: 170-176)',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-1',
-    fileName: 'namuna_1.jpg',
-    rawCode: '046400143805267798',
-    sscc: '046400143805267798',
-    formattedCode: '(00)046400143805267798',
-    color: 'Белый',
-    size: 'XL',
-    rost: '176-182',
-    copies: 4,
-    status: 'OK',
-    notes: 'Namuna: To\'liq to\'g\'ri SSCC kodi',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-2',
-    fileName: 'namuna_2.jpg',
-    rawCode: '046400143805267798',
-    sscc: '046400143805267798',
-    formattedCode: '(00)046400143805267798',
-    color: 'Серый агат / Черный / Лавровый венок',
-    size: '48-50',
-    rost: '170-176',
-    copies: 4,
-    status: 'OK',
-    notes: 'Namuna: Ko\'p rangli qop (3 ta rang)',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-3',
-    fileName: 'namuna_ocr.jpg',
-    rawCode: '046400143805267798',
-    sscc: '046400143805267798',
-    formattedCode: '(00)046400143805267798',
-    color: 'Глубокий черный',
-    size: 'M',
-    rost: '164-170',
-    copies: 4,
-    status: 'OCR',
-    notes: 'Namuna: Yozuvdan (OCR) o\'qilgan',
-    createdAt: new Date().toISOString()
-  },
-  {
-    id: 'demo-4',
-    fileName: 'namuna_tuzatildi.jpg',
-    rawCode: '046400143805267798',
-    sscc: '046400143805267798',
-    formattedCode: '(00)046400143805267798',
-    color: 'Оливковый / Хаки',
-    size: 'L',
-    rost: '170-176',
-    copies: 4,
-    status: 'tuzatildi',
-    notes: 'Namuna: OCR xatosi avtomatik to\'g\'rilangan',
-    createdAt: new Date().toISOString()
-  }
-];
+
+
 
 export default function BarcodeLabelsView() {
   const [items, setItems] = useState<BarcodeItem[]>([]);
@@ -143,7 +68,7 @@ export default function BarcodeLabelsView() {
 
   const [batchColorInput, setBatchColorInput] = useState<string>('');
   const [batchSizeInput, setBatchSizeInput] = useState<string>('');
-  const [batchRostInput, setBatchRostInput] = useState<string>('170-176');
+  const [batchRostInput, setBatchRostInput] = useState<string>('');
   const [batchCopiesInput, setBatchCopiesInput] = useState<number>(4);
   const [previewImageModalUrl, setPreviewImageModalUrl] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
@@ -159,19 +84,29 @@ export default function BarcodeLabelsView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
-  // Dastlabki yuklash: IndexedDB dan o'qish
+  // Dastlabki yuklash: IndexedDB dan o'qish va qolgan eski sinov qatorlarini tozalash
   useEffect(() => {
     let isMounted = true;
+
+    if (localStorage.getItem('chust_labels_cleaned_v2') !== 'true') {
+      labelRepository.clearAll().then(() => {
+        if (isMounted) {
+          setItems([]);
+          setSelectedItemId(null);
+          localStorage.setItem('chust_labels_cleaned_v2', 'true');
+        }
+      });
+      return;
+    }
+
     labelRepository.getAll().then(loaded => {
       if (isMounted) {
         if (loaded && loaded.length > 0) {
           setItems(loaded);
           setSelectedItemId(loaded[0]?.id || null);
         } else {
-          // Birinchi ochilganda namunaviy ma'lumotlar bilan to'ldirish
-          setItems(DEMO_ITEMS);
-          setSelectedItemId(DEMO_ITEMS[0].id);
-          labelRepository.saveAll(DEMO_ITEMS);
+          setItems([]);
+          setSelectedItemId(null);
         }
       }
     });
@@ -287,8 +222,9 @@ export default function BarcodeLabelsView() {
         rawCode: readResult.rawCode,
         sscc: readResult.sscc,
         formattedCode: readResult.formattedCode,
-        color: '',
-        size: '',
+        color: readResult.color || '',
+        size: readResult.size || '',
+        rost: readResult.rost || '170-176',
         copies: settings.defaultCopies,
         status: readResult.status,
         notes: readResult.details,
@@ -427,16 +363,8 @@ export default function BarcodeLabelsView() {
 
   // Barcha qatorlarni tozalash
   const handleClearAll = () => {
-    if (window.confirm('Haqiqatan ham barcha etiketkalarni tozalamoqchimisiz?')) {
-      updateAndPersistItems([]);
-      setSelectedItemId(null);
-    }
-  };
-
-  // Demo yuklash
-  const handleLoadDemo = () => {
-    updateAndPersistItems(DEMO_ITEMS);
-    setSelectedItemId(DEMO_ITEMS[0].id);
+    updateAndPersistItems([]);
+    setSelectedItemId(null);
   };
 
   // Qo'lda bo'sh qator qo'shish
@@ -449,10 +377,10 @@ export default function BarcodeLabelsView() {
       formattedCode: '',
       color: '',
       size: '',
-      rost: '170-176',
+      rost: '',
       copies: settings.defaultCopies,
       status: 'oqilmadi',
-      notes: 'Raqamni kiriting',
+      notes: '',
       createdAt: new Date().toISOString()
     };
     const merged = [newRow, ...items];
@@ -764,14 +692,6 @@ export default function BarcodeLabelsView() {
             <span>Excel Eksport</span>
           </button>
 
-          <button
-            onClick={handleLoadDemo}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-indigo-300 px-3 py-2 rounded-xl border border-slate-700 transition-colors"
-            title="Namunaviy to'g'ri va ko'p rangli etiketkalar"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Demo namunalar</span>
-          </button>
 
           {/* ASOSIY PDF YARATISH TUGMASI */}
           <button
@@ -866,17 +786,19 @@ export default function BarcodeLabelsView() {
                                 type="text"
                                 value={item.rawCode}
                                 onChange={(e) => handleUpdateField(item.id, 'rawCode', e.target.value)}
-                                placeholder="046400143805267798"
+                                placeholder=""
                                 className="w-full bg-slate-800/90 border border-slate-700 text-white font-mono px-2.5 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
                               />
-                              <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
-                                <span>{item.formattedCode || '-'}</span>
-                                {item.notes && (
-                                  <span className="text-slate-500 truncate max-w-[140px]" title={item.notes}>
-                                    · {item.notes}
-                                  </span>
-                                )}
-                              </div>
+                              {item.rawCode ? (
+                                <div className="flex items-center gap-1.5 text-[10px] text-slate-400 font-mono">
+                                  <span>{item.formattedCode}</span>
+                                  {item.notes && !item.notes.startsWith('Namuna') && (
+                                    <span className="text-slate-500 truncate max-w-[140px]" title={item.notes}>
+                                      · {item.notes}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : null}
                             </div>
                           </td>
 
@@ -920,7 +842,7 @@ export default function BarcodeLabelsView() {
                               type="text"
                               value={item.color}
                               onChange={(e) => handleUpdateField(item.id, 'color', e.target.value)}
-                              placeholder="Белый yoki Зеленый"
+                              placeholder=""
                               className="w-full bg-slate-800/80 border border-slate-700 text-white px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
                             />
                           </td>
@@ -931,7 +853,7 @@ export default function BarcodeLabelsView() {
                               type="text"
                               value={item.size}
                               onChange={(e) => handleUpdateField(item.id, 'size', e.target.value)}
-                              placeholder="104 yoki XL"
+                              placeholder=""
                               className="w-full bg-slate-800/80 border border-slate-700 text-white font-bold px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
                             />
                           </td>
@@ -942,7 +864,7 @@ export default function BarcodeLabelsView() {
                               type="text"
                               value={item.rost || ''}
                               onChange={(e) => handleUpdateField(item.id, 'rost', e.target.value)}
-                              placeholder="170-176"
+                              placeholder=""
                               className="w-full bg-slate-800/80 border border-slate-700 text-white font-mono px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
                             />
                           </td>
@@ -1018,30 +940,7 @@ export default function BarcodeLabelsView() {
             formatType={settings.formatType}
           />
 
-          {/* Spetsifikatsiya yordamchisi */}
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 text-xs text-slate-400 space-y-2">
-            <h4 className="font-bold text-slate-300 flex items-center gap-1.5">
-              <HelpCircle className="w-4 h-4 text-indigo-400" />
-              {settings.formatType === '80x50' ? '80x50 mm Vertikal Etiketka' : '40x58 mm Termo Etiketka'}
-            </h4>
-            <ul className="space-y-1.5 text-[11px] leading-relaxed list-disc list-inside text-slate-400">
-              <li>Standart: <strong>GS1-128 (SSCC)</strong> 18 xonali to'liq nazorat raqami</li>
-              {settings.formatType === '80x50' ? (
-                <>
-                  <li>Format: <strong>80x50 mm (Vertikal)</strong> — Huddi rasmdagidek</li>
-                  <li>Shtrix-kod o'lchami: <strong>Eniga 4.2 sm (42 mm)</strong>, <strong>Bo'yiga 5.1 sm (51 mm)</strong></li>
-                  <li>Tagida: Oraliqli 20 ta raqamlar + (00) formatlangan SSCC</li>
-                  <li>Pastda 3 ta ustun: <strong>Цвет:</strong> | <strong>Размер:</strong> | <strong>Рост:</strong></li>
-                </>
-              ) : (
-                <>
-                  <li>Format: <strong>40x58 mm</strong> termo qop etiketkasi, 90° burilgan</li>
-                  <li>Modullar: <strong>156 ta modul</strong>, eni 0.27 mm, chiziq uzunligi 33 mm</li>
-                  <li>Pastda: Rang (yagona yoki ko'p qatorli) va o'lcham</li>
-                </>
-              )}
-            </ul>
-          </div>
+
         </div>
 
       </div>
@@ -1073,7 +972,7 @@ export default function BarcodeLabelsView() {
                 <label className="block text-slate-300 font-bold mb-1">Rang (Цвет):</label>
                 <input
                   type="text"
-                  placeholder="Masalan: Зеленый yoki Белый"
+                  placeholder=""
                   value={batchColorInput}
                   onChange={(e) => setBatchColorInput(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 text-white px-3 py-2 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
@@ -1084,7 +983,7 @@ export default function BarcodeLabelsView() {
                 <label className="block text-slate-300 font-bold mb-1">O'lcham (Размер):</label>
                 <input
                   type="text"
-                  placeholder="Masalan: 104 yoki XL"
+                  placeholder=""
                   value={batchSizeInput}
                   onChange={(e) => setBatchSizeInput(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 text-white px-3 py-2 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"
@@ -1095,7 +994,7 @@ export default function BarcodeLabelsView() {
                 <label className="block text-slate-300 font-bold mb-1">Bo'y / Rost (Рост):</label>
                 <input
                   type="text"
-                  placeholder="Masalan: 170-176 yoki 164"
+                  placeholder=""
                   value={batchRostInput}
                   onChange={(e) => setBatchRostInput(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-700 text-white font-mono px-3 py-2 rounded-xl text-xs focus:outline-hidden focus:border-indigo-500"

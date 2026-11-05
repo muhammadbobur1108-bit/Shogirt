@@ -286,6 +286,7 @@ export interface AppUser {
   phone: string;
   activeStatus: boolean;
   pin: string; // Simple login pin/password
+  password?: string; // Optional full password
   department?: string;
   email?: string;
   allowedTabs?: string[]; // IDs of tabs this user is permitted to view
