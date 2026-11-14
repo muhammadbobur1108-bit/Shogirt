@@ -35,9 +35,7 @@ import { generateLabelsPdf, downloadPdfBlob } from '../lib/barcode/pdfGenerator'
 import { importBarcodesFromExcel, exportBarcodesToExcel } from '../lib/barcode/excel';
 import { labelRepository } from '../repository/labelRepository';
 import LabelPreviewCard from './LabelPreviewCard';
-
-
-
+import BarcodeExcelCsvModal from './BarcodeExcelCsvModal';
 
 export default function BarcodeLabelsView() {
   const [items, setItems] = useState<BarcodeItem[]>([]);
@@ -55,6 +53,8 @@ export default function BarcodeLabelsView() {
   // Modallar
   const [showBatchModal, setShowBatchModal] = useState<boolean>(false);
   const [showSettingsModal, setShowSettingsModal] = useState<boolean>(false);
+  const [showExcelCsvModal, setShowExcelCsvModal] = useState<boolean>(false);
+  const [toastNotification, setToastNotification] = useState<{ text: string; type: 'success' | 'info' | 'error' } | null>(null);
   const [settingsActiveTab, setSettingsActiveTab] = useState<'dimensions' | 'api'>('dimensions');
   const [apiSettings, setApiSettings] = useState<ApiSettings>(() => {
     try {
@@ -72,6 +72,13 @@ export default function BarcodeLabelsView() {
   const [batchCopiesInput, setBatchCopiesInput] = useState<number>(4);
   const [previewImageModalUrl, setPreviewImageModalUrl] = useState<string | null>(null);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
+
+  const triggerToast = (text: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToastNotification({ text, type });
+    setTimeout(() => {
+      setToastNotification(prev => (prev?.text === text ? null : prev));
+    }, 4500);
+  };
 
   const handleSelectFormat = (fmt: LabelFormatType) => {
     if (fmt === '80x50') {
@@ -168,7 +175,8 @@ export default function BarcodeLabelsView() {
         const matchColor = (item.color || '').toLowerCase().includes(q);
         const matchSize = (item.size || '').toLowerCase().includes(q);
         const matchFile = (item.fileName || '').toLowerCase().includes(q);
-        return matchCode || matchColor || matchSize || matchFile;
+        const matchModel = (item.model || '').toLowerCase().includes(q);
+        return matchCode || matchColor || matchSize || matchFile || matchModel;
       }
 
       return true;
@@ -289,7 +297,19 @@ export default function BarcodeLabelsView() {
     return () => window.removeEventListener('paste', handlePaste);
   }, [items, settings]);
 
-  // Excel orqali import qilish
+  // Excel / CSV orqali import qilish (yangi aqlli mapper orqali)
+  const handleImportFromExcelCsvModal = (importedItems: BarcodeItem[], summary: { count: number; totalCopies: number }) => {
+    if (importedItems.length === 0) return;
+    const merged = [...importedItems, ...items];
+    updateAndPersistItems(merged);
+    setSelectedItemId(importedItems[0].id);
+    triggerToast(
+      `Muvaffaqiyatli import qilindi: ${summary.count} ta qator, jami ${summary.totalCopies} dona etiketka navbatga qo'shildi!`,
+      'success'
+    );
+  };
+
+  // Oddiy Excel yuklash (agar to'g'ridan-to'g'ri fayl tanlansa)
   const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -304,13 +324,14 @@ export default function BarcodeLabelsView() {
         const merged = [...res.items, ...items];
         updateAndPersistItems(merged);
         setSelectedItemId(res.items[0].id);
-        alert(`Muvaffaqiyatli import qilindi: ${res.items.length} ta shtrix-kod (${res.validCodesCount} ta to'g'ri)`);
+        triggerToast(`Muvaffaqiyatli import qilindi: ${res.items.length} ta shtrix-kod (${res.validCodesCount} ta to'g'ri)`, 'success');
       } else {
-        alert('Excel faylda 18 yoki 20 xonali shtrix-kod raqamlari topilmadi.');
+        triggerToast('Excel faylda 18 yoki 20 xonali shtrix-kod raqamlari topilmadi. Ustunlarni bog\'lash oynasidan foydalaning.', 'info');
+        setShowExcelCsvModal(true);
       }
     } catch (err: any) {
       setIsProcessing(false);
-      alert(`Excel importida xatolik: ${err?.message || err}`);
+      triggerToast(`Excel importida xatolik: ${err?.message || err}`, 'error');
     } finally {
       if (excelInputRef.current) excelInputRef.current.value = '';
     }
@@ -416,15 +437,36 @@ export default function BarcodeLabelsView() {
       });
       downloadPdfBlob(pdfBytes, `Chust_Etiketkalar_${settings.formatType}_${new Date().toISOString().slice(0, 10)}.pdf`);
     } catch (err: any) {
-      alert(`PDF yaratishda xatolik: ${err?.message || err}`);
+      triggerToast(`PDF yaratishda xatolik: ${err?.message || err}`, 'error');
     } finally {
       setIsGeneratingPdf(false);
     }
   };
 
   return (
-    <div className="space-y-5 pb-10" id="barcode-labels-module">
-      
+    <div className="space-y-5 pb-10 relative" id="barcode-labels-module">
+      {/* TOAST BILDIRISHNOMA */}
+      {toastNotification && (
+        <div className={`p-3.5 rounded-2xl flex items-center justify-between gap-3 text-xs shadow-xl border animate-fade-in ${
+          toastNotification.type === 'error'
+            ? 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+            : toastNotification.type === 'info'
+            ? 'bg-sky-500/10 border-sky-500/30 text-sky-300'
+            : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+        }`}>
+          <div className="flex items-center gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+            <span className="font-medium">{toastNotification.text}</span>
+          </div>
+          <button
+            onClick={() => setToastNotification(null)}
+            className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
       {/* 1. MODULE HEADER & STATS */}
       <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 shadow-lg">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -665,21 +707,14 @@ export default function BarcodeLabelsView() {
             <span>Hammasiga qo'llash</span>
           </button>
 
-          {/* Excel Input */}
-          <input 
-            ref={excelInputRef}
-            type="file" 
-            accept=".xlsx,.xls" 
-            className="hidden" 
-            onChange={handleExcelUpload}
-          />
+          {/* Excel / CSV Aqlli Import */}
           <button
-            onClick={() => excelInputRef.current?.click()}
-            className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-emerald-400 px-3 py-2 rounded-xl border border-slate-700 transition-colors"
-            title="Excel fayldan 18-20 xonali kodlarni import qilish"
+            onClick={() => setShowExcelCsvModal(true)}
+            className="flex items-center gap-1.5 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 px-3 py-2 rounded-xl transition-all cursor-pointer font-bold shadow-xs active:scale-95"
+            title="Excel (.xlsx) yoki CSV (.csv) fayldan Model, O'lcham va Soni ustunlarini avto-bog'lab navbatga kiritish"
           >
-            <FileSpreadsheet className="w-3.5 h-3.5" />
-            <span>Excel Import</span>
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Excel / CSV Import</span>
           </button>
 
           <button
@@ -721,20 +756,21 @@ export default function BarcodeLabelsView() {
                   <tr>
                     <th className="py-3 px-3 w-10 text-center">№</th>
                     <th className="py-3 px-3 w-16">Rasm</th>
-                    <th className="py-3 px-4 min-w-[190px]">Shtrix-kod raqami</th>
-                    <th className="py-3 px-3 w-28">Holat</th>
-                    <th className="py-3 px-3 min-w-[130px]">Rang (Цвет)</th>
-                    <th className="py-3 px-3 w-24">O'lcham (Размер)</th>
-                    <th className="py-3 px-3 w-24">Рост (Bo'y)</th>
-                    <th className="py-3 px-3 w-16 text-center">Nusxa</th>
+                    <th className="py-3 px-4 min-w-[180px]">Shtrix-kod raqami</th>
+                    <th className="py-3 px-3 w-24">Holat</th>
+                    <th className="py-3 px-3 min-w-[140px]">Model / Mahsulot</th>
+                    <th className="py-3 px-3 min-w-[110px]">Rang (Цвет)</th>
+                    <th className="py-3 px-3 w-20">O'lcham</th>
+                    <th className="py-3 px-3 w-20">Рост</th>
+                    <th className="py-3 px-3 w-24 text-center">Zakaz (Nusxa)</th>
                     <th className="py-3 px-3 w-20 text-center">Amallar</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-800">
                   {filteredItems.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-500">
-                        Hech qanday etiketka topilmadi. Yuqoridan rasm yuklang yoki "Qo'lda kiritish" tugmasini bosing.
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
+                        Hech qanday etiketka topilmadi. Yuqoridan rasm yuklang, "Excel / CSV Import" qiling yoki "Qo'lda kiritish" tugmasini bosing.
                       </td>
                     </tr>
                   ) : (
@@ -836,6 +872,18 @@ export default function BarcodeLabelsView() {
                             )}
                           </td>
 
+                          {/* Model / Mahsulot */}
+                          <td className="py-2 px-3">
+                            <input
+                              type="text"
+                              value={item.model || ''}
+                              onChange={(e) => handleUpdateField(item.id, 'model', e.target.value)}
+                              placeholder={item.fileName || 'Model nomi'}
+                              className="w-full bg-slate-800/80 border border-slate-700 text-white font-medium px-2 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
+                              title="Mahsulot yoki model nomi"
+                            />
+                          </td>
+
                           {/* Rang (Цвет) */}
                           <td className="py-2 px-3">
                             <input
@@ -869,15 +917,20 @@ export default function BarcodeLabelsView() {
                             />
                           </td>
 
-                          {/* Nusxalar soni */}
+                          {/* Nusxalar soni (Zakaz soni / Copies) */}
                           <td className="py-2 px-3 text-center">
                             <input
                               type="number"
                               min={1}
-                              max={50}
+                              max={9999}
                               value={item.copies}
-                              onChange={(e) => handleUpdateField(item.id, 'copies', parseInt(e.target.value, 10) || 1)}
-                              className="w-14 text-center bg-slate-800/80 border border-slate-700 text-white font-mono font-bold px-1 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-indigo-500"
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value, 10) || 1;
+                                handleUpdateField(item.id, 'copies', val);
+                                handleUpdateField(item.id, 'quantity', val);
+                              }}
+                              className="w-16 text-center bg-emerald-950/30 border border-emerald-500/40 text-emerald-300 font-mono font-bold px-1 py-1.5 rounded-lg text-xs focus:outline-hidden focus:border-emerald-400"
+                              title="Chop navbatidagi nusxalar soni (Quantity)"
                             />
                           </td>
 
@@ -1362,6 +1415,14 @@ export default function BarcodeLabelsView() {
           </div>
         </div>
       )}
+
+      {/* EXCEL VA CSV AQLLI MAPPING MODALI */}
+      <BarcodeExcelCsvModal
+        isOpen={showExcelCsvModal}
+        onClose={() => setShowExcelCsvModal(false)}
+        onImportToQueue={handleImportFromExcelCsvModal}
+        defaultCopies={settings.defaultCopies}
+      />
 
     </div>
   );

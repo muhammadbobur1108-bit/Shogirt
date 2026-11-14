@@ -20,6 +20,8 @@ export interface BarcodeItem {
   color: string;            // Rang nomi (masalan: "Белый" yoki "Зеленый")
   size: string;             // O'lcham (masalan: "104" yoki "XL")
   rost?: string;            // Bo'y / Rost (masalan: "170-176")
+  model?: string;           // Mahsulot / Model / Artikul
+  quantity?: number;        // Zakaz / Buyurtma soni
   copies: number;           // Chop etiladigan nusxalar soni (standart: 4)
   status: BarcodeStatus;    // Qator holati
   notes?: string;           // Izoh yoki o'qish detali

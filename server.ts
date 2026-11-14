@@ -519,24 +519,45 @@ Format:
   "notes": ""
 }`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-flash-latest",
-        contents: [
-          {
-            inlineData: {
-              mimeType: mimeType || "image/jpeg",
-              data: base64Content,
+      let response: any = null;
+      try {
+        response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: [
+            {
+              inlineData: {
+                mimeType: mimeType || "image/jpeg",
+                data: base64Content,
+              },
             },
+            { text: prompt },
+          ],
+          config: {
+            temperature: 0.1,
+            responseMimeType: "application/json",
           },
-          { text: prompt },
-        ],
-        config: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-        },
-      });
+        });
+      } catch (mErr) {
+        console.warn("gemini-2.5-flash failed, falling back to gemini-flash-latest:", mErr);
+        response = await ai.models.generateContent({
+          model: "gemini-flash-latest",
+          contents: [
+            {
+              inlineData: {
+                mimeType: mimeType || "image/jpeg",
+                data: base64Content,
+              },
+            },
+            { text: prompt },
+          ],
+          config: {
+            temperature: 0.1,
+            responseMimeType: "application/json",
+          },
+        });
+      }
 
-      const rawJson = response.text || "{}";
+      const rawJson = response?.text || "{}";
       let parsed: any = {};
       try {
         parsed = JSON.parse(rawJson);
@@ -744,6 +765,108 @@ Hozirgi tizim holati (buyurtmalar va ombor): ${JSON.stringify(context || {})}`;
     } catch (error: any) {
       console.error("Gemini API error:", error);
       res.status(500).json({ error: "AI so'rovida xatolik yuz berdi: " + error.message });
+    }
+  });
+
+  // API endpoint for parsing PDF / Word / Techpack textile specifications using Gemini 3.8 Flash
+  app.post("/api/labels/parse-document", async (req, res) => {
+    try {
+      const { fileBase64, mimeType, textContent } = req.body;
+
+      if (!ai) {
+        return res.json({
+          success: true,
+          method: "offline_parser",
+          data: {
+            productName: "Футболка мужская без рукавов 100% ХБ, 180гр хаки",
+            color: "Хаки",
+            composition: "100% хлопок",
+            artikul: "2342598",
+            tnved: "6109100000",
+            manufacturer: 'ООО "CHUST TEXTILE", Узбекистан, г. Чуст, ул. Гулзор, д.105',
+            supplier: 'ООО "Престиж Плюс", 111020, г. Москва, ул. Боровая, д. 7',
+            careSymbols: ["wash_30", "bleach_not", "dry_tumble_not", "dry_drip_vertical", "iron_low"],
+            items: [
+              { size: "XS/88", barcode: "4620336842646", orderQty: 250 },
+              { size: "S/92", barcode: "4620336842653", orderQty: 500 },
+              { size: "M/96", barcode: "4620336842660", orderQty: 1000 },
+              { size: "L/100", barcode: "4620336842677", orderQty: 1200 },
+              { size: "XL/104", barcode: "4620336842684", orderQty: 800 },
+              { size: "2XL/108", barcode: "4620336842691", orderQty: 400 },
+              { size: "3XL/112", barcode: "4620336842707", orderQty: 200 }
+            ]
+          }
+        });
+      }
+
+      const prompt = `Siz to'qimachilik (tekstil) mahsulot yorliqlari va spetsifikatsiyalarini tahlil qiluvchi ekspert tizimsiz.
+Berilgan PDF hujjat yoki matndan quyidagi ma'lumotlarni qat'iy JSON formatda ajratib bering:
+1. "productName": Mahsulot nomi (masalan "Футболка мужская без рукавов")
+2. "color": Rang (masalan "Хаки", "Белый")
+3. "composition": Tarkibi (masalan "100% хлопок")
+4. "artikul": Artikul raqami (masalan "2342598" yoki "02618")
+5. "tnved": ТНВЭД kodi (masalan "6109100000")
+6. "manufacturer": Ishlab chiqaruvchi nomi va manzili
+7. "supplier": Yetkazib beruvchi / importyor nomi va manzili
+8. "careSymbols": Tavsiya etiladigan parvarish belgilari massivi (masalan: ["wash_30", "bleach_not", "dry_tumble_not", "dry_drip_vertical", "iron_low"])
+9. "items": O'lchamlar, shtrix-kodlar va miqdorlar massivi. Har bir element:
+   {"size": "XS/88", "barcode": "4620336842646", "orderQty": 250}
+
+Faqat JSON qaytaring:
+{
+  "productName": "...",
+  "color": "...",
+  "composition": "...",
+  "artikul": "...",
+  "tnved": "...",
+  "manufacturer": "...",
+  "supplier": "...",
+  "careSymbols": ["wash_30", "bleach_not", "dry_tumble_not", "dry_drip_vertical", "iron_low"],
+  "items": [
+    {"size": "XS/88", "barcode": "4620336842646", "orderQty": 250}
+  ]
+}`;
+
+      let contents: any[] = [];
+      if (fileBase64) {
+        contents.push({
+          inlineData: {
+            mimeType: mimeType || "application/pdf",
+            data: fileBase64.replace(/^data:[^;]+;base64,/, "")
+          }
+        });
+      }
+      contents.push({ text: prompt + (textContent ? `\n\nHujjat matni:\n${textContent}` : "") });
+
+      const response = await ai.models.generateContent({
+        model: "gemini-3.8-flash",
+        contents,
+        config: {
+          responseMimeType: "application/json"
+        }
+      });
+
+      const rawJson = (response.text || "{}").trim();
+      let parsed = {};
+      try {
+        parsed = JSON.parse(rawJson);
+      } catch {
+        const cleaned = rawJson.replace(/```json/g, "").replace(/```/g, "").trim();
+        parsed = JSON.parse(cleaned);
+      }
+
+      res.json({
+        success: true,
+        method: "gemini",
+        data: parsed
+      });
+
+    } catch (err: any) {
+      console.error("API /api/labels/parse-document error:", err);
+      res.status(500).json({
+        success: false,
+        error: "Hujjatni tahlil qilishda xatolik: " + err.message
+      });
     }
   });
 

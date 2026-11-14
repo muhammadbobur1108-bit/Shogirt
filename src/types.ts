@@ -62,8 +62,11 @@ export interface OrderColorVariant {
   qtyPotok: number;
   qtyPackaging: number;
   raskroySizes?: { [size: string]: number };
+  razdachaSizes?: { [size: string]: number };
   poshivSizes?: { [size: string]: number };
   upakovkaSizes?: { [size: string]: number };
+  brakSizes?: { [size: string]: number };
+  brakQty?: number;
 }
 
 export interface OrderIssue {
@@ -146,6 +149,14 @@ export interface Order {
   upakovkaType?: string; // e.g., "korobka" | "meshok"
   upakovkaPackage?: string; // e.g., "paket"
   upakovkaTypeDetails?: string; // e.g., "tip upakovki"
+  packagingMode?: '1x' | '2x' | '3x' | 'set' | 'lot'; // Packaging configuration
+  packagingPreApprovalPhoto?: string; // Pre-approval confirmation photo URL
+
+  // Artworks and Custom sizes
+  printArtworkUrl?: string; // Uploaded artwork image URL for print
+  vishivkaArtworkUrl?: string; // Uploaded embroidery design image URL
+  customSizes?: string[]; // Dynamically added custom sizes
+  brakPerColor?: { [color: string]: { qty: number; norm: number; note?: string } };
 
   // Other modules
   vishivkaDetails?: string;
@@ -294,18 +305,24 @@ export interface AppUser {
 
 export interface WarehouseBox {
   id: string;
-  boxNumber: string;      // Korobka raqami (e.g., K-001)
-  orderNumber: string;    // Buyurtma (or ID)
-  modelCode: string;      // Model
-  color: string;          // Rangi
-  size: string;           // Razmeri
-  quantity: number;       // Soni (dona)
-  weightKg: number;       // Og'irligi (kg)
-  brandName: string;      // Brend
-  createdAt: string;      // Yaralgan sanasi (e.g. 2026-07-21)
+  boxNumber: string;      // 1. Номер тары (e.g. Т-001, М-104)
+  orderNumber: string;    // 2. Заказ (e.g. MOS-539.7.1)
+  modelCode: string;      // 3. Модель (e.g. SM-OW-1111/160)
+  article: string;        // 4. Артикул (e.g. 2342598, 02618)
+  productName: string;    // 5. Наименование (e.g. Футболка мужская с коротким рукавом)
+  color: string;          // 6. Цвет (e.g. Хаки, Черный, Белый)
+  size: string;           // 7. Размеры (e.g. 2XS/84-12XL/148, 100/170-176)
+  quantity: number;       // 8. Всего (dona / шт)
+  packagingDate: string;  // 9. Дата упаковка (e.g. 2026-07-20)
+  warehouseDate: string;  // 10. Дата склада (e.g. 2026-07-21)
+  status: 'Готов к отгрузке' | 'Остаток' | 'Отгружен' | 'На проверке' | string; // 11. Статус
+  weightKg?: number;      // Og'irligi (kg)
+  brandName?: string;     // Brend
+  createdAt: string;      // Tizimga kiritilgan vaqt
   barcode?: string;
   qrCode?: string;
   notes?: string;
+  checked?: boolean;      // Kunlik cheklistda jismoniy tekshirilganlik belgisi
 }
 
 export interface Employee {

@@ -72,10 +72,10 @@ export default function LabelPreviewCard({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col items-center">
       <div className="flex items-center justify-between w-full mb-3 text-xs">
-        <span className="font-bold text-slate-300">
-          {is80x50 ? '80x50 mm (Vertikal)' : '40x58 mm (Gorizontal)'} Jonli Etiketka
+        <span className="font-bold text-slate-300 truncate max-w-[170px]" title={item.model || ''}>
+          {item.model ? `${item.model} · ` : ''}{is80x50 ? '80x50 mm' : '40x58 mm'}
         </span>
-        <span className="bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded text-[11px] font-mono">
+        <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded text-[11px] font-mono font-bold">
           {item.copies || 4} nusxa
         </span>
       </div>

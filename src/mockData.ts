@@ -53,7 +53,7 @@ export const INITIAL_USERS: AppUser[] = [
     activeStatus: true,
     pin: '1108',
     password: 'admin',
-    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'print', 'users', 'settings', 'nakladnoy', 'labels', 'telemetry', 'tarix']
+    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'users', 'settings', 'nakladnoy', 'labels', 'telemetry', 'tarix']
   },
   {
     id: 'usr-0',
@@ -64,7 +64,7 @@ export const INITIAL_USERS: AppUser[] = [
     activeStatus: true,
     pin: '0000',
     password: 'admin',
-    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'print', 'users', 'settings', 'nakladnoy', 'labels', 'telemetry', 'tarix']
+    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'users', 'settings', 'nakladnoy', 'labels', 'telemetry', 'tarix']
   },
   {
     id: 'usr-1',
@@ -74,7 +74,7 @@ export const INITIAL_USERS: AppUser[] = [
     phone: '+998 90 999-01-01',
     activeStatus: true,
     pin: '1111',
-    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'print']
+    allowedTabs: ['dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak']
   },
   {
     id: 'usr-2',
@@ -98,13 +98,13 @@ export const INITIAL_USERS: AppUser[] = [
   },
   {
     id: 'usr-4',
-    username: 'akmal_printer',
+    username: 'akmal_worker',
     fullName: 'Akmal Turg\'unov',
-    role: 'printer',
+    role: 'operator',
     phone: '+998 97 888-99-00',
     activeStatus: true,
     pin: '4444',
-    allowedTabs: ['dashboard', 'print']
+    allowedTabs: ['dashboard']
   },
   {
     id: 'usr-5',

@@ -931,7 +931,7 @@ export default function ReportsKpiDashboard({
                 target: totalOrderQty || 1,
                 color: 'from-emerald-500 to-teal-400',
                 badge: `${totalOrderQty > 0 ? Math.round((totalPackedQty / totalOrderQty) * 100) : 0}%`,
-                status: lang === 'ru' ? 'Маркировка Честный Знак' : 'Shtrix-kod faol'
+                status: lang === 'ru' ? 'Штрихкоды и упаковка' : 'Shtrix-kod faol'
               }
             ].map((dept, idx) => {
               const pct = Math.min(100, Math.round((dept.actual / dept.target) * 100));

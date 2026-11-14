@@ -5,13 +5,15 @@ interface TexLogoProps {
   showSubtitle?: boolean;
   className?: string;
   variant?: 'light' | 'dark';
+  festive?: boolean;
 }
 
 export default function TexLogo({
   size = 'md',
   showSubtitle = true,
   className = '',
-  variant = 'light'
+  variant = 'light',
+  festive = false
 }: TexLogoProps) {
   const iconSizes = {
     sm: 'w-7 h-7',
@@ -37,7 +39,17 @@ export default function TexLogo({
   return (
     <div className={`flex items-center gap-2.5 select-none ${className}`}>
       {/* Dynamic Woven Loom Vector Emblem */}
-      <div className={`relative ${iconSizes[size]} shrink-0 flex items-center justify-center rounded-xl p-1 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 shadow-lg shadow-indigo-950/50`}>
+      <div className={`relative ${iconSizes[size]} shrink-0 flex items-center justify-center rounded-xl p-1 bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 border ${festive ? 'border-amber-400/60' : 'border-indigo-500/30'} shadow-lg shadow-indigo-950/50`}>
+        {festive && (
+          <svg
+            viewBox="0 0 24 24"
+            className="w-4 h-4 absolute -top-2 -right-1.5 drop-shadow-[0_1px_3px_rgba(239,68,68,0.6)] pointer-events-none"
+          >
+            <path d="M3 16 L13 3 L20 14 Z" fill="#dc2626" />
+            <rect x="2" y="14" width="19" height="3.5" rx="1.75" fill="#f8fafc" />
+            <circle cx="13" cy="3" r="2.2" fill="#f8fafc" />
+          </svg>
+        )}
         <svg 
           viewBox="0 0 48 48" 
           fill="none" 

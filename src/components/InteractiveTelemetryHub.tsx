@@ -775,8 +775,8 @@ export default function InteractiveTelemetryHub({
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed font-mono">
                   {lang === 'ru'
-                    ? `100% коробок (${boxes.length} шт) и партий оснащены штрихкодами GS1-128 и Честный Знак.`
-                    : `100% qutilar (${boxes.length} ta) va tovarlar GS1-128 va Chestny Znak kodlari bilan jihozlangan.`}
+                    ? `100% коробок (${boxes.length} шт) и партий оснащены штрихкодами GS1-128.`
+                    : `100% qutilar (${boxes.length} ta) va tovarlar GS1-128 shtrixkodlari bilan jihozlangan.`}
                 </p>
               </div>
 
@@ -1373,10 +1373,10 @@ export default function InteractiveTelemetryHub({
                   </span>
                 </div>
                 <h5 className="font-bold text-white text-sm mt-3">
-                  {lang === 'ru' ? 'Накладная и Честный Знак' : 'Накладная & Markirovka'}
+                  {lang === 'ru' ? 'Накладная отгрузки' : 'Qoplar Nakladnoyi'}
                 </h5>
                 <p className="text-[11px] text-slate-400 font-mono mt-1">
-                  {lang === 'ru' ? 'Синхронизация Честный Знак / Asl Belgisi' : 'Asl Belgisi / Честный Знак moslashuv'}
+                  {lang === 'ru' ? 'Синхронизация упаковки и штрихкодов' : 'Qadoq va shtrixkodlar moslashuvi'}
                 </p>
                 <div className="mt-3 text-[10px] text-cyan-400 font-bold flex items-center gap-1 group-hover:translate-x-1 transition-transform">
                   <span>{lang === 'ru' ? 'Открыть' : "Ko'rish"}</span> <ChevronRight className="w-3 h-3" />

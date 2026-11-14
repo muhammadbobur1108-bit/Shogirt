@@ -1,1 +1,53 @@
 @import "tailwindcss";
+
+@page {
+  size: 40mm 58mm;
+  margin: 0;
+}
+
+@media print {
+  html, body {
+    width: 40mm !important;
+    height: 58mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  
+  /* Hide all dashboard/ERP elements */
+  body * {
+    visibility: hidden !important;
+  }
+  
+  /* Only display the printable label and its children */
+  #printable-product-label, 
+  #printable-product-label * {
+    visibility: visible !important;
+  }
+
+  /* Fixed 40x58mm thermal label positioning */
+  #printable-product-label {
+    display: flex !important;
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 40mm !important;
+    height: 58mm !important;
+    max-width: 40mm !important;
+    max-height: 58mm !important;
+    box-shadow: none !important;
+    border: none !important;
+    margin: 0 !important;
+    padding: 1.5mm 2mm !important;
+    box-sizing: border-box !important;
+    page-break-inside: avoid !important;
+    page-break-after: always !important;
+    overflow: hidden !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    z-index: 9999999 !important;
+  }
+}

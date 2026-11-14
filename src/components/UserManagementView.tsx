@@ -34,14 +34,15 @@ interface UserManagementViewProps {
 }
 
 export const ALL_SYSTEM_TABS = [
-  { id: 'dashboard', nameUz: 'Дашбоард', nameRu: 'Дашборд' },
-  { id: 'buyurtmalar', nameUz: 'Заказлар (Buyurtmalar)', nameRu: 'Заказы' },
-  { id: 'ombor', nameUz: 'Омборхона (Тайёр маҳсулот)', nameRu: 'Склад готовой продукции' },
-  { id: 'hisobotlar', nameUz: 'Ҳисоботлар (Отчеты)', nameRu: 'Отчеты' },
-  { id: 'brak', nameUz: 'Брак (Дефектлар)', nameRu: 'Брак' },
-  { id: 'print', nameUz: 'Вышивка ва Печатних цех', nameRu: 'Вышивка и Печатный цех' },
-  { id: 'users', nameUz: 'Фойдаланувчилар (Xodimlar)', nameRu: 'Пользователи' },
-  { id: 'settings', nameUz: 'Созламалар (Настройки)', nameRu: 'Настройки' }
+  { id: 'dashboard', nameUz: 'Bosqaruv paneli', nameRu: 'Дашборд' },
+  { id: 'buyurtmalar', nameUz: 'Zakazlar (Buyurtmalar)', nameRu: 'Заказы' },
+  { id: 'nakladnoy', nameUz: 'Qoplar & Nakladnoy', nameRu: 'Накладная отгрузки' },
+  { id: 'stickers', nameUz: 'Stikerlar', nameRu: 'Стикеры' },
+  { id: 'ombor', nameUz: 'Ombor (Tayyor mahsulot)', nameRu: 'Склад готовой продукции' },
+  { id: 'hisobotlar', nameUz: 'Hisobotlar (Muzlatilgan)', nameRu: 'Отчеты (Заморожено)' },
+  { id: 'brak', nameUz: 'Brak & OTK', nameRu: 'Брак' },
+  { id: 'users', nameUz: 'Xodimlar & Ruxsatlar', nameRu: 'Пользователи' },
+  { id: 'settings', nameUz: 'Sozlamalar', nameRu: 'Настройки' }
 ];
 
 export default function UserManagementView({ 
@@ -70,7 +71,7 @@ export default function UserManagementView({
   const [phone, setPhone] = useState('');
   const [pin, setPin] = useState('');
   const [selectedTabs, setSelectedTabs] = useState<string[]>([
-    'dashboard', 'buyurtmalar', 'ombor', 'hisobotlar', 'brak', 'print', 'users', 'settings'
+    'dashboard', 'buyurtmalar', 'nakladnoy', 'stickers', 'ombor', 'brak', 'users', 'settings'
   ]);
 
   const [showPins, setShowPins] = useState<{ [userId: string]: boolean }>({});

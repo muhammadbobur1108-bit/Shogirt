@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Order, OrderSizes, OrderColorVariant, OrderIssue, AppUser } from '../types';
+import { Order, OrderSizes, OrderColorVariant, OrderIssue, AppUser, WarehouseBox } from '../types';
 import { 
   X, 
   Scissors, 
@@ -28,8 +28,19 @@ import {
   Upload,
   Check,
   AlertCircle,
-  Camera
+  Camera,
+  FileSpreadsheet,
+  Download,
+  ExternalLink,
+  FileText,
+  Box as BoxIcon,
+  GitMerge,
+  ArrowRight
 } from 'lucide-react';
+
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
+import * as XLSX from 'xlsx';
 
 import { Language } from '../locales';
 import ExcelStageImportModal from './ExcelStageImportModal';
@@ -42,6 +53,9 @@ interface OrderDetailModalProps {
   onDeleteOrder?: (id: string) => void;
   currentUser?: AppUser | null;
   lang: Language;
+  onNavigateToTab?: (tab: string) => void;
+  boxes?: WarehouseBox[];
+  onUpdateBoxes?: (updatedBoxes: WarehouseBox[]) => void;
 }
 
 const ADULT_SIZES = ['2XS', 'XS', 'S', 'M', 'L', 'XL', '2XL', '3XL', '4XL', '5XL', '6XL', '7XL', '8XL', '9XL', '10XL', '11XL', '12XL', '13XL', '14XL', '15XL', '16XL'];
@@ -210,23 +224,66 @@ const HorizontalExcelStageGrid: React.FC<HorizontalExcelStageGridProps> = ({
             {sizeKeys.map((sz, colIdx) => (
               <td key={sz} className="p-1 border-r border-slate-800">
                 <input
-                  type="number"
-                  min="0"
+                  type="text"
+                  inputMode="numeric"
                   data-grid={gridId}
                   data-row={0}
                   data-col={colIdx}
                   value={inputValues[sz] !== undefined && inputValues[sz] > 0 ? inputValues[sz] : ''}
                   placeholder="0"
                   onFocus={(e) => e.target.select()}
-                  onKeyDown={(e) => handleExcelKeyDown(e, 0, colIdx, 1, sizeKeys.length, gridId)}
+                  onKeyDown={(e) => {
+                    if (['e', 'E', '+', '-', '.'].includes(e.key)) {
+                      e.preventDefault();
+                    }
+                    handleExcelKeyDown(e, 0, colIdx, 1, sizeKeys.length, gridId);
+                  }}
                   onPaste={(e) => handleExcelPaste(e, 0, colIdx, sizeKeys, (_r, szKey, val) => onValueChange(szKey, val))}
-                  onChange={(e) => onValueChange(sz, Math.max(0, parseInt(e.target.value) || 0))}
+                  onChange={(e) => {
+                    const clean = e.target.value.replace(/[^\d]/g, '');
+                    onValueChange(sz, clean === '' ? 0 : parseInt(clean, 10));
+                  }}
                   className={`w-full text-center bg-slate-900 border border-slate-700/80 ${inputColorClass} font-mono font-black text-xs py-2 rounded-md outline-none focus:border-2 focus:border-amber-400 focus:bg-slate-800 transition-all shadow-inner`}
                 />
               </td>
             ))}
             <td className={`p-2.5 font-mono font-black text-sm border-l border-slate-800 bg-slate-900/40 ${inputColorClass}`}>
               {inputTotal.toLocaleString()}
+            </td>
+          </tr>
+
+          {/* Row 3: Difference (Fact vs Plan) */}
+          <tr className="bg-slate-900/20 text-[11px] font-mono border-t border-slate-800">
+            <td className="p-2 text-left font-bold border-r border-slate-800 text-slate-500">
+              {lang === 'uz' ? 'Фарқ (Факт - Режа)' : 'Разница (Факт - План)'}
+            </td>
+            {sizeKeys.map((sz) => {
+              const fact = inputValues[sz] || 0;
+              const plan = refValues[sz] || 0;
+              const diff = fact - plan;
+              return (
+                <td 
+                  key={sz} 
+                  className={`p-1.5 font-bold border-r border-slate-800 ${
+                    diff > 0 
+                      ? 'text-emerald-400 bg-emerald-950/20' 
+                      : diff < 0 
+                        ? 'text-rose-400 bg-rose-950/20' 
+                        : 'text-slate-600'
+                  }`}
+                >
+                  {diff > 0 ? `+${diff}` : diff === 0 ? '0' : `${diff}`}
+                </td>
+              );
+            })}
+            <td className={`p-2 font-black border-l border-slate-800 ${
+              inputTotal - refTotal > 0 
+                ? 'text-emerald-400 bg-emerald-950/40' 
+                : inputTotal - refTotal < 0 
+                  ? 'text-rose-400 bg-rose-950/40' 
+                  : 'text-slate-500'
+            }`}>
+              {inputTotal - refTotal > 0 ? `+${inputTotal - refTotal}` : `${inputTotal - refTotal}`}
             </td>
           </tr>
         </tbody>
@@ -242,7 +299,10 @@ export default function OrderDetailModal({
   onUpdateOrder,
   onDeleteOrder,
   currentUser,
-  lang
+  lang,
+  onNavigateToTab,
+  boxes = [],
+  onUpdateBoxes
 }: OrderDetailModalProps) {
   // Active Tab State
   const [activeTab, setActiveTab] = useState<ActiveTab>('zakaz_razmer');
@@ -334,18 +394,62 @@ export default function OrderDetailModal({
   const [testBarcodeResult, setTestBarcodeResult] = useState<'idle' | 'correct' | 'incorrect'>('idle');
 
   // Additional settings
-  const [upakovkaType, setUpakovkaType] = useState('korobka'); // "korobka" | "meshok"
-  const [upakovkaPackage, setUpakovkaPackage] = useState('paket_standart'); // "paket"
-  const [upakovkaTypeDetails, setUpakovkaTypeDetails] = useState('Standart qadoq'); // "tip upakovki"
+  const [upakovkaType, setUpakovkaType] = useState(order.upakovkaType || 'korobka'); // "korobka" | "meshok"
+  const [upakovkaPackage, setUpakovkaPackage] = useState(order.upakovkaPackage || 'paket_standart'); // "paket"
+  const [upakovkaTypeDetails, setUpakovkaTypeDetails] = useState(order.upakovkaTypeDetails || 'Standart qadoq'); // "tip upakovki"
+  const [packagingMode, setPackagingMode] = useState<'1x' | '2x' | '3x' | 'set' | 'lot'>(order.packagingMode || '1x');
+  const [packagingPreApprovalPhoto, setPackagingPreApprovalPhoto] = useState<string | null>(order.packagingPreApprovalPhoto || null);
 
+  // Print & Vishivka dedicated artwork states
   const [printRequired, setPrintRequired] = useState(order.printRequired || false);
   const [printName, setPrintName] = useState(order.printName || '');
   const [printDetails, setPrintDetails] = useState(order.printDetails || '');
   const [printStatus, setPrintStatus] = useState(order.printStatus || 'kutilmoqda');
+  const [printArtworkUrl, setPrintArtworkUrl] = useState<string | null>(order.printArtworkUrl || null);
 
   const [vishivkaName, setVishivkaName] = useState(order.vishivkaName || '');
   const [vishivkaDetails, setVishivkaDetails] = useState(order.vishivkaDetails || '');
   const [vishivkaStatus, setVishivkaStatus] = useState(order.vishivkaStatus || 'yoq');
+  const [vishivkaArtworkUrl, setVishivkaArtworkUrl] = useState<string | null>(order.vishivkaArtworkUrl || null);
+
+  // Stage validation warning toast
+  const [validationToast, setValidationToast] = useState<{ message: string; type: 'error' | 'warning' } | null>(null);
+
+  const showValidationToast = (message: string, type: 'error' | 'warning' = 'warning') => {
+    setValidationToast({ message, type });
+    setTimeout(() => {
+      setValidationToast(null);
+    }, 4500);
+  };
+
+  // Per-color defect norm tracking (3.5% standard factory norm)
+  const [brakPerColor, setBrakPerColor] = useState<{ [color: string]: { qty: number; norm: number; note?: string } }>(() => {
+    if (order.brakPerColor) return order.brakPerColor;
+    const initial: { [color: string]: { qty: number; norm: number; note?: string } } = {};
+    if (order.colorVariants && order.colorVariants.length > 0) {
+      order.colorVariants.forEach(v => {
+        initial[v.color] = {
+          qty: v.brakQty || 0,
+          norm: Math.round((v.qtyOrder || 0) * 0.035),
+          note: ''
+        };
+      });
+    } else {
+      const primaryColor = order.color || 'Standart';
+      initial[primaryColor] = {
+        qty: order.qtyDefect || 0,
+        norm: Math.round((order.qtyOrder || 0) * 0.035),
+        note: ''
+      };
+    }
+    return initial;
+  });
+
+  // Active color tab for multi-color orders across stages
+  const [selectedStageColorIdx, setSelectedStageColorIdx] = useState<number | 'all'>('all');
+
+  // Preview modal for images
+  const [zoomImageModal, setZoomImageModal] = useState<{ url: string; title: string } | null>(null);
 
   const [otkStatus, setOtkStatus] = useState(order.otkStatus || 'tekshirilmoqda');
   const [otkConfirmedBy, setOtkConfirmedBy] = useState(order.otkConfirmedBy || '');
@@ -370,6 +474,120 @@ export default function OrderDetailModal({
   const [newIssueText, setNewIssueText] = useState('');
   const [newIssueImage, setNewIssueImage] = useState<string | null>(null);
   const [previewImageModal, setPreviewImageModal] = useState<string | null>(null);
+
+  // Artwork & photo upload handlers
+  const handlePrintArtworkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPrintArtworkUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleVishivkaArtworkUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setVishivkaArtworkUrl(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handlePackagingPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPackagingPreApprovalPhoto(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Export problems / chat logs to PDF
+  const handleExportIssuesPdf = () => {
+    try {
+      const doc = new jsPDF();
+      doc.setFontSize(16);
+      doc.text(`TEX ERP - Отчет по проблемам и чату заказа`, 14, 18);
+      
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`MOS Kod: ${order.mosCode || 'N/A'} | Model: ${order.modelCode || 'N/A'} | Buyurtmachi: ${order.brandName || order.customerName || 'N/A'}`, 14, 25);
+      doc.text(`Sana: ${new Date().toLocaleString()} | Jami muammolar: ${orderIssues.length}`, 14, 31);
+      
+      const tableData = orderIssues.map((iss, idx) => [
+        (idx + 1).toString(),
+        iss.createdAt || '-',
+        iss.authorName || 'Noma\'lum',
+        iss.authorRole || 'Operator',
+        iss.status === 'resolved' ? (lang === 'uz' ? 'Hal qilindi' : 'Решено') : (lang === 'uz' ? 'Ochiq' : 'Открыто'),
+        iss.text || '-',
+        iss.imageUrl ? (lang === 'uz' ? 'Mavjud (Foto)' : 'Есть (Фото)') : (lang === 'uz' ? 'Yo\'q' : 'Нет')
+      ]);
+
+      autoTable(doc, {
+        startY: 36,
+        head: [[
+          '№', 
+          lang === 'uz' ? 'Sana / Vaqt' : 'Дата / Время', 
+          lang === 'uz' ? 'Muallif' : 'Автор', 
+          lang === 'uz' ? 'Lavozim' : 'Должность', 
+          lang === 'uz' ? 'Holat' : 'Статус', 
+          lang === 'uz' ? 'Muammo / Xabar' : 'Описание проблемы / Сообщение', 
+          lang === 'uz' ? 'Rasm' : 'Фото'
+        ]],
+        body: tableData,
+        headStyles: { fillColor: [79, 70, 229] },
+        styles: { fontSize: 8, cellPadding: 3 },
+        columnStyles: {
+          0: { cellWidth: 10 },
+          1: { cellWidth: 28 },
+          2: { cellWidth: 24 },
+          3: { cellWidth: 24 },
+          4: { cellWidth: 22 },
+          5: { cellWidth: 'auto' },
+          6: { cellWidth: 20 },
+        }
+      });
+
+      doc.save(`Muammolar_${order.mosCode || 'order'}.pdf`);
+    } catch (err) {
+      console.error('PDF export error:', err);
+      alert(lang === 'uz' ? 'PDF eksportida xatolik yuz berdi' : 'Ошибка при экспорте в PDF');
+    }
+  };
+
+  // Export problems / chat logs to Excel
+  const handleExportIssuesExcel = () => {
+    try {
+      const rows = orderIssues.map((iss, idx) => ({
+        '№': idx + 1,
+        'MOS Kod': order.mosCode,
+        'Model Kodi': order.modelCode,
+        'Buyurtmachi': order.brandName || order.customerName,
+        'Sana': iss.createdAt,
+        'Muallif': iss.authorName,
+        'Lavozim': iss.authorRole,
+        'Holat': iss.status === 'resolved' ? 'Hal qilindi (Resolved)' : 'Ochiq (Open)',
+        'Muammo tavsifi': iss.text,
+        'Rasm mavjudligi': iss.imageUrl ? 'Ha' : 'Yo\'q'
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Muammolar_Chat');
+      XLSX.writeFile(wb, `Muammolar_${order.mosCode || 'order'}.xlsx`);
+    } catch (err) {
+      console.error('Excel export error:', err);
+      alert(lang === 'uz' ? 'Excel eksportida xatolik yuz berdi' : 'Ошибка при экспорте в Excel');
+    }
+  };
 
   const handleIssueImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -738,20 +956,55 @@ export default function OrderDetailModal({
 
   const curr = lang === 'uz' ? t.uz : t.ru;
 
-  // Handle individual size changes
+  // Handle individual size changes with strict production stage limits
   const handleSizeChange = (
     stage: ActiveTab, 
     size: string, 
     value: string
   ) => {
-    const numericVal = Math.max(0, parseInt(value) || 0);
+    const clean = value.toString().replace(/[^\d]/g, '');
+    const numericVal = clean === '' ? 0 : parseInt(clean, 10);
+
     if (stage === 'raskroy') {
       setRaskroy(prev => ({ ...prev, [size]: numericVal }));
     } else if (stage === 'razdacha') {
+      const cutLimit = raskroy[size] || 0;
+      if (numericVal > cutLimit) {
+        showValidationToast(
+          lang === 'uz'
+            ? `⚠️ Bosqich xatoligi: ${size} o'lchami uchun Razdacha (${numericVal} dona) Kroydan (${cutLimit} dona) oshib ketolmaydi!`
+            : `⚠️ Ошибка этапа: Раздача (${numericVal} шт) для размера ${size} не может превышать Крой (${cutLimit} шт)!`,
+          'error'
+        );
+        setRazdacha(prev => ({ ...prev, [size]: cutLimit }));
+        return;
+      }
       setRazdacha(prev => ({ ...prev, [size]: numericVal }));
     } else if (stage === 'poshiv') {
+      const potokLimit = razdacha[size] || 0;
+      if (numericVal > potokLimit) {
+        showValidationToast(
+          lang === 'uz'
+            ? `⚠️ Bosqich xatoligi: ${size} o'lchami uchun Tikuv/Poshiv (${numericVal} dona) Razdachadan (${potokLimit} dona) oshib ketolmaydi!`
+            : `⚠️ Ошибка этапа: Пошив (${numericVal} шт) для размера ${size} не может превышать Раздачу (${potokLimit} шт)!`,
+          'error'
+        );
+        setPoshiv(prev => ({ ...prev, [size]: potokLimit }));
+        return;
+      }
       setPoshiv(prev => ({ ...prev, [size]: numericVal }));
     } else if (stage === 'upakovka') {
+      const poshivLimit = poshiv[size] || 0;
+      if (numericVal > poshivLimit) {
+        showValidationToast(
+          lang === 'uz'
+            ? `⚠️ Bosqich xatoligi: ${size} o'lchami uchun Qadoqlash/Upakovka (${numericVal} dona) Tikuvdan (${poshivLimit} dona) oshib ketolmaydi!`
+            : `⚠️ Ошибка этапа: Упаковка (${numericVal} шт) для размера ${size} не может превышать Пошив (${poshivLimit} шт)!`,
+          'error'
+        );
+        setUpakovka(prev => ({ ...prev, [size]: poshivLimit }));
+        return;
+      }
       setUpakovka(prev => ({ ...prev, [size]: numericVal }));
     } else if (stage === 'brak') {
       setBrak(prev => ({ ...prev, [size]: numericVal }));
@@ -830,6 +1083,37 @@ export default function OrderDetailModal({
       }
     }
 
+    // Stage limit validation before saving
+    if (sumRazdacha > sumRaskroy) {
+      showValidationToast(
+        lang === 'uz'
+          ? `⚠️ Xatolik: Jami Razdacha (${sumRazdacha}) Kroydan (${sumRaskroy}) oshib ketolmaydi!`
+          : `⚠️ Ошибка: Итого Раздача (${sumRazdacha} шт) не может превышать Крой (${sumRaskroy} шт)!`,
+        'error'
+      );
+      return;
+    }
+
+    if (sumPoshiv > sumRazdacha) {
+      showValidationToast(
+        lang === 'uz'
+          ? `⚠️ Xatolik: Jami Tikuv/Poshiv (${sumPoshiv}) Razdachadan (${sumRazdacha}) oshib ketolmaydi!`
+          : `⚠️ Ошибка: Итого Пошив (${sumPoshiv} шт) не может превышать Раздачу (${sumRazdacha} шт)!`,
+        'error'
+      );
+      return;
+    }
+
+    if (sumUpakovka > sumPoshiv) {
+      showValidationToast(
+        lang === 'uz'
+          ? `⚠️ Xatolik: Jami Qadoqlash/Upakovka (${sumUpakovka}) Tikuvdan (${sumPoshiv}) oshib ketolmaydi!`
+          : `⚠️ Ошибка: Итого Упаковка (${sumUpakovka} шт) не может превышать Пошив (${sumPoshiv} шт)!`,
+        'error'
+      );
+      return;
+    }
+
     const updatedOrder: Order = {
       ...order,
       color: finalColorString,
@@ -839,7 +1123,7 @@ export default function OrderDetailModal({
       qtyCut: sumRaskroy,
       qtyPotok: sumRazdacha,
       qtyPackaging: sumUpakovka,
-      qtyDefect: sumBrak,
+      qtyDefect: sumBrak + brakMixQty,
       qtyRemaining: calculatedRemaining,
       
       // Detailed metrics
@@ -848,22 +1132,27 @@ export default function OrderDetailModal({
       poshivSizes: poshiv,
       upakovkaSizes: upakovka,
       brakSizes: brak,
+      brakPerColor: brakPerColor,
       otkSizes: otk,
       otkIsReady,
 
-      // Settings
+      // Settings & Packaging
       upakovkaType,
       upakovkaPackage,
       upakovkaTypeDetails,
+      packagingMode,
+      packagingPreApprovalPhoto: packagingPreApprovalPhoto || undefined,
 
       printRequired,
       printName: printName.trim(),
       printDetails,
       printStatus: printStatus as any,
+      printArtworkUrl: printArtworkUrl || undefined,
 
       vishivkaName: vishivkaName.trim(),
       vishivkaDetails,
       vishivkaStatus,
+      vishivkaArtworkUrl: vishivkaArtworkUrl || undefined,
 
       otkStatus,
       otkConfirmedBy: otkConfirmedBy.trim(),
@@ -999,6 +1288,24 @@ export default function OrderDetailModal({
             </button>
           </div>
         </div>
+
+        {/* Real-time Stage Constraint Warning Toast */}
+        {validationToast && (
+          <div className="mx-4 sm:mx-6 my-2 p-3.5 bg-rose-950/90 border-2 border-rose-500 text-white rounded-2xl shadow-2xl flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-2 z-50">
+            <div className="flex items-center gap-3">
+              <span className="p-1.5 bg-rose-600 rounded-xl text-white">
+                <AlertTriangle className="w-4 h-4" />
+              </span>
+              <span className="text-xs font-black tracking-wide text-rose-100">{validationToast.message}</span>
+            </div>
+            <button 
+              onClick={() => setValidationToast(null)} 
+              className="text-rose-300 hover:text-white bg-rose-900/60 hover:bg-rose-900 px-2 py-1 rounded-lg text-xs font-bold cursor-pointer"
+            >
+              ✕
+            </button>
+          </div>
+        )}
 
         {/* Dynamic Interactive Metrics Bar (Exact user metrics) */}
         <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 sm:gap-2.5 p-3 sm:p-4 bg-slate-950/50 border-b border-slate-800 text-center font-black">
@@ -1411,12 +1718,58 @@ export default function OrderDetailModal({
                   </button>
                 </div>
 
+                {/* Real-time Cutting vs Order comparison indicator */}
+                {(() => {
+                  const baseOrder = order.qtyOrder || effectiveQtyOrder;
+                  const diff = sumRaskroy - baseOrder;
+                  const pct = baseOrder > 0 ? ((diff / baseOrder) * 100).toFixed(1) : '0';
+                  const isPositive = diff > 0;
+                  const isZero = diff === 0;
+
+                  return (
+                    <div className={`p-3.5 rounded-2xl border flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 ${
+                      isPositive 
+                        ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' 
+                        : isZero 
+                          ? 'bg-slate-900/60 border-slate-800 text-slate-300' 
+                          : 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+                    }`}>
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-3 h-3 rounded-full ${isPositive ? 'bg-emerald-400 animate-pulse' : isZero ? 'bg-slate-400' : 'bg-rose-500 animate-pulse'}`}></span>
+                        <div>
+                          <span className="text-xs font-black block">
+                            {lang === 'uz' ? 'Buyurtmaga nisbatan Kroy farqi (Cutting vs. Order):' : 'Разница Кроя относительно Заказа (Cutting vs. Order):'}
+                          </span>
+                          <span className="text-[10px] text-slate-400">
+                            {isPositive 
+                              ? (lang === 'uz' ? 'Kroy buyurtmadan ortiqcha bichilgan (zaxira mavjud)' : 'Крой превышает заказ (создан запас)')
+                              : isZero 
+                                ? (lang === 'uz' ? 'Kroy buyurtmaga aynan teng' : 'Крой точно соответствует заказу')
+                                : (lang === 'uz' ? 'Kroy buyurtmadan kamroq bichilgan (yetishmovchilik xavfi)' : 'Крой меньше объема заказа (риск нехватки)')
+                            }
+                          </span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 font-mono">
+                        <span className={`text-sm font-black px-3 py-1 rounded-xl shadow-md ${
+                          isPositive ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' : isZero ? 'bg-slate-800 text-slate-300 border border-slate-700' : 'bg-rose-500/20 text-rose-400 border border-rose-500/40'
+                        }`}>
+                          {isPositive ? `+${pct}% (+${diff} ${lang === 'uz' ? 'dona' : 'шт'})` : isZero ? `0.0% (Teng / Вровень)` : `${pct}% (${diff} ${lang === 'uz' ? 'dona' : 'шт'})`}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          ({sumRaskroy} / {baseOrder} {lang === 'uz' ? 'dona' : 'шт'})
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 <HorizontalExcelStageGrid
                   gridId="raskroy-grid"
                   sizeKeys={sizeKeys}
                   refLabel={lang === 'uz' ? 'Буюртма (Заказ)' : 'Заказ'}
-                  refValues={order.sizes || {}}
-                  refTotal={order.qtyOrder || 0}
+                  refValues={orderSizes && Object.keys(orderSizes).length > 0 ? orderSizes : (order.sizes || {})}
+                  refTotal={effectiveQtyOrder}
                   inputLabel={curr.raskroy}
                   inputValues={raskroy}
                   inputTotal={sumRaskroy}
@@ -1436,7 +1789,7 @@ export default function OrderDetailModal({
                       <Send className="w-4 h-4 text-emerald-400" />
                       {curr.razdacha}
                     </h4>
-                    <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Tikuvchilarga tarqatilgan andozalar' : 'Количество распределенных кроев'}</p>
+                    <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Tikuvchilarga tarqatilgan andozalar (Kroydan oshib ketolmaydi)' : 'Количество распределенных кроев (не может превышать Крой)'}</p>
                   </div>
                   <button
                     type="button"
@@ -1446,6 +1799,16 @@ export default function OrderDetailModal({
                     <Upload className="w-3.5 h-3.5 text-emerald-400" />
                     <span>{lang === 'uz' ? 'Excel Import' : 'Импорт из Excel'}</span>
                   </button>
+                </div>
+
+                {/* Stage limit indicator */}
+                <div className="p-3 bg-emerald-950/30 border border-emerald-900/40 rounded-xl flex items-center justify-between text-xs">
+                  <span className="text-slate-300">
+                    <strong className="text-emerald-400">{lang === 'uz' ? 'Bosqich qoidasi:' : 'Правило этапа:'}</strong> {lang === 'uz' ? 'Раздача ≤ Крой' : 'Раздача ≤ Крой'}
+                  </span>
+                  <span className="font-mono text-emerald-300">
+                    {lang === 'uz' ? 'Qoldiq Kroy:' : 'Остаток в крое:'} <strong>{Math.max(0, sumRaskroy - sumRazdacha)}</strong> {lang === 'uz' ? 'dona' : 'шт'}
+                  </span>
                 </div>
 
                 <HorizontalExcelStageGrid
@@ -1472,7 +1835,17 @@ export default function OrderDetailModal({
                     <LayersIcon className="w-4 h-4 text-cyan-400" />
                     {curr.poshiv}
                   </h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Tikuv jarayonidan o\'tgan tayyor kiyimlar' : 'Количество пошитых изделий в потоке'}</p>
+                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Tikuv jarayonidan o\'tgan tayyor kiyimlar (Razdachadan oshib ketolmaydi)' : 'Количество пошитых изделий в потоке (не может превышать Раздачу)'}</p>
+                </div>
+
+                {/* Stage limit indicator */}
+                <div className="p-3 bg-cyan-950/30 border border-cyan-900/40 rounded-xl flex items-center justify-between text-xs">
+                  <span className="text-slate-300">
+                    <strong className="text-cyan-400">{lang === 'uz' ? 'Bosqich qoidasi:' : 'Правило этапа:'}</strong> {lang === 'uz' ? 'Пошив ≤ Раздача' : 'Пошив ≤ Раздача'}
+                  </span>
+                  <span className="font-mono text-cyan-300">
+                    {lang === 'uz' ? 'Tikuvdagi potok:' : 'В процессе пошива:'} <strong>{Math.max(0, sumRazdacha - sumPoshiv)}</strong> {lang === 'uz' ? 'dona' : 'шт'}
+                  </span>
                 </div>
 
                 <HorizontalExcelStageGrid
@@ -1500,7 +1873,7 @@ export default function OrderDetailModal({
                       <Archive className="w-4 h-4 text-indigo-400" />
                       {curr.upakovka}
                     </h4>
-                    <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Qadoqlangan mahsulotlarni har bir o\'lcham bo\'yicha (korobka, meshok, paket) qo\'lda kiritish' : 'Учет упаковки готовых изделий вручную по размерам (коробка, мешок, пакет)'}</p>
+                    <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Qadoqlangan mahsulotlar (Пошивdan oshib ketolmaydi), quti o\'lchami va namuna fotosurati' : 'Учет упаковки (не может превышать Пошив), параметры коробок и фото образца'}</p>
                   </div>
                   <button
                     type="button"
@@ -1512,8 +1885,8 @@ export default function OrderDetailModal({
                   </button>
                 </div>
 
-                {/* Packaging details settings */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                {/* Packaging details settings: Box sizes, packet type, configuration and Pre-approval Photo */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-slate-950 p-4 rounded-2xl border border-slate-800">
                   <div className="space-y-1.5">
                     <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
                       {lang === 'uz' ? 'Korobka o\'lchami (Box dimensions)' : 'Размер коробки'}
@@ -1523,22 +1896,98 @@ export default function OrderDetailModal({
                       placeholder={lang === 'uz' ? "Masalan: 60x40x40 cm" : "Например: 60x40x40 см"}
                       value={upakovkaTypeDetails}
                       onChange={(e) => setUpakovkaTypeDetails(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500 font-bold"
                     />
                   </div>
 
                   <div className="space-y-1.5">
                     <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
-                      {lang === 'uz' ? 'Paket o\'lchami (Packet dimensions)' : 'Размер пакета'}
+                      {lang === 'uz' ? 'Paket o\'lchami / Turi (Packet)' : 'Тип и размер пакета'}
                     </label>
                     <input 
                       type="text"
-                      placeholder={lang === 'uz' ? "Masalan: 30x40 cm" : "Например: 30x40 см"}
+                      placeholder={lang === 'uz' ? "Masalan: BOPP 30x40 cm, Zip-lock" : "Например: BOPP 30x40 см, Zip-lock"}
                       value={upakovkaPackage}
                       onChange={(e) => setUpakovkaPackage(e.target.value)}
-                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500"
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500 font-bold"
                     />
                   </div>
+
+                  <div className="space-y-1.5">
+                    <label className="block text-[10px] text-slate-400 font-extrabold uppercase tracking-wider">
+                      {lang === 'uz' ? 'Qadoq konfiguratsiyasi (Rejim)' : 'Конфигурация упаковки'}
+                    </label>
+                    <select
+                      value={packagingMode}
+                      onChange={(e) => setPackagingMode(e.target.value as any)}
+                      className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500 font-bold cursor-pointer"
+                    >
+                      <option value="1x">1x (Dona / Поштучно)</option>
+                      <option value="2x">2x (2 dona qadoq / Двойной пак)</option>
+                      <option value="3x">3x (3 dona qadoq / Тройной пак)</option>
+                      <option value="set">Комплект (Set)</option>
+                      <option value="lot">Партия / Лот (Lot)</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Dedicated Pre-approval Photo Zone before packaging begins */}
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                    <div>
+                      <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        <Camera className="w-4 h-4 text-indigo-400" />
+                        {lang === 'uz' ? 'Qadoqlashdan oldin namunaviy tasdiqlash fotosurati (Pre-approval photo)' : 'Фото образца упаковки перед началом (Pre-approval)'}
+                      </h5>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        {lang === 'uz' ? 'Qadoqlash boshlanishidan oldin to\'g\'ri taxlangan va etiketkasi qo\'yilgan namunani rasmga olib biriktiring.' : 'Перед началом упаковывания прикрепите подтверждающее фото правильного сложения и маркировки.'}
+                      </p>
+                    </div>
+
+                    <label className="bg-indigo-950/60 hover:bg-indigo-900/60 border border-indigo-700/60 text-indigo-300 font-bold text-xs px-3.5 py-1.5 rounded-xl cursor-pointer transition-colors flex items-center gap-1.5 shrink-0 shadow-md">
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{packagingPreApprovalPhoto ? (lang === 'uz' ? 'Fotosuratni almashtirish' : 'Заменить фото') : (lang === 'uz' ? 'Foto yuklash' : 'Загрузить фото')}</span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handlePackagingPhotoUpload} 
+                        className="hidden" 
+                      />
+                    </label>
+                  </div>
+
+                  {packagingPreApprovalPhoto && (
+                    <div className="flex items-center gap-4 bg-slate-900/60 p-3 rounded-xl border border-slate-850">
+                      <img 
+                        src={packagingPreApprovalPhoto} 
+                        alt="Pre-approval packaging sample" 
+                        className="w-24 h-24 object-cover rounded-lg border border-slate-700 cursor-pointer hover:opacity-90"
+                        onClick={() => setZoomImageModal({ url: packagingPreApprovalPhoto, title: lang === 'uz' ? 'Qadoq namuna fotosurati' : 'Фото образца упаковки' })}
+                      />
+                      <div className="space-y-1.5 flex-1">
+                        <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
+                          <CheckCircle className="w-4 h-4" />
+                          {lang === 'uz' ? 'Tasdiqlash fotosurati biriktirilgan' : 'Фото подтверждения прикреплено'}
+                        </span>
+                        <div className="flex gap-2 pt-1">
+                          <button
+                            type="button"
+                            onClick={() => setZoomImageModal({ url: packagingPreApprovalPhoto, title: lang === 'uz' ? 'Qadoq namuna fotosurati' : 'Фото образца упаковки' })}
+                            className="text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 px-2.5 py-1 rounded-lg font-bold cursor-pointer"
+                          >
+                            {lang === 'uz' ? 'Kattalashtirish' : 'Увеличить'}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPackagingPreApprovalPhoto(null)}
+                            className="text-xs bg-rose-950/60 hover:bg-rose-900 text-rose-300 px-2.5 py-1 rounded-lg font-bold cursor-pointer"
+                          >
+                            {lang === 'uz' ? 'O\'chirish' : 'Удалить'}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <HorizontalExcelStageGrid
@@ -1550,47 +1999,332 @@ export default function OrderDetailModal({
                   inputLabel={curr.upakovka}
                   inputValues={upakovka}
                   inputTotal={sumUpakovka}
-                  onValueChange={(sz, val) => setUpakovka(prev => ({ ...prev, [sz]: val }))}
+                  onValueChange={(sz, val) => handleSizeChange('upakovka', sz, val.toString())}
                   inputColorClass="text-indigo-300"
                   lang={lang}
                 />
+
+                {/* 3. INVENTORY MERGE & ZATARKA SECTION */}
+                {(() => {
+                  const currentModel = order.modelCode || '';
+                  const currentArticle = order.oneCArticles?.[0] || order.mosCode || '';
+                  const currentArticleClean = currentArticle.replace(/^0+/, '');
+
+                  // Find warehouse boxes that match this model/article with remaining stock
+                  const matchingRemainders: { box: WarehouseBox; size: string; packedQty: number }[] = [];
+                  
+                  Object.entries(upakovka || {}).forEach(([sz, qty]) => {
+                    const numQty = Number(qty) || 0;
+                    if (numQty > 0) {
+                      const matchedBox = boxes.find(b => {
+                        const bArtClean = (b.article || '').replace(/^0+/, '');
+                        const isModelMatch = b.modelCode && currentModel && (b.modelCode.toLowerCase() === currentModel.toLowerCase() || b.modelCode.includes(currentModel) || currentModel.includes(b.modelCode));
+                        const isArticleMatch = bArtClean && currentArticleClean && (bArtClean.includes(currentArticleClean) || currentArticleClean.includes(bArtClean));
+                        const isSizeMatch = b.size && (b.size.toLowerCase() === sz.toLowerCase() || b.size.includes(sz));
+                        return (isModelMatch || isArticleMatch) && isSizeMatch && (b.status === 'Остаток' || b.quantity > 0);
+                      });
+                      if (matchedBox) {
+                        matchingRemainders.push({ box: matchedBox, size: sz, packedQty: numQty });
+                      }
+                    }
+                  });
+
+                  return (
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-indigo-900/40 space-y-3">
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                        <div>
+                          <h5 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                            <BoxIcon className="w-4 h-4 text-cyan-400" />
+                            {lang === 'uz' ? 'Ombor bilan Zatarka va Qoldiqlarni birlashtirish' : 'Затарка и объединение с остатками склада'}
+                          </h5>
+                          <p className="text-[11px] text-slate-400 mt-0.5">
+                            {lang === 'uz' 
+                              ? 'Qadoqlangan mahsulotlarni ombordagi avvalgi qoldiqlar bilan solishtirish va to\'laqonli partiyaga birlashtirish' 
+                              : 'Умное сравнение упакованных партий с остатками на складе и объединение в полноценную затарку'}
+                          </p>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (sumUpakovka <= 0) {
+                                showValidationToast(lang === 'uz' ? 'Qadoqlangan miqdor 0 dan katta bo\'lishi kerak!' : 'Упакованное количество должно быть больше 0!', 'warning');
+                                return;
+                              }
+                              // Form warehouse tara
+                              const nextTaraNum = `Т-${String(boxes.length + 1).padStart(3, '0')}`;
+                              const newWarehouseBox: WarehouseBox = {
+                                id: `box-${Date.now()}-${Math.random()}`,
+                                boxNumber: nextTaraNum,
+                                orderNumber: order.orderNumber,
+                                modelCode: order.modelCode,
+                                article: order.oneCArticles?.[0] || order.mosCode || '02618',
+                                productName: order.productType || 'Футболка',
+                                color: order.color,
+                                size: Object.entries(upakovka).filter(([_, q]) => Number(q) > 0).map(([s, q]) => `${s}:${q}`).join(', ') || 'XS-4XL',
+                                quantity: sumUpakovka,
+                                packagingDate: new Date().toISOString().split('T')[0],
+                                warehouseDate: new Date().toISOString().split('T')[0],
+                                status: 'Готов к отгрузке',
+                                weightKg: Number((sumUpakovka * 0.18).toFixed(1)),
+                                brandName: order.brandName || 'Chust Textile',
+                                createdAt: new Date().toISOString().split('T')[0],
+                                checked: false
+                              };
+                              if (onUpdateBoxes) {
+                                onUpdateBoxes([newWarehouseBox, ...boxes]);
+                              }
+                              showValidationToast(
+                                lang === 'uz'
+                                  ? `Yangi tara ${nextTaraNum} muvaffaqiyatli shakllantirildi va tayyor mahsulot omboriga qabul qilindi!`
+                                  : `Сформирована тара ${nextTaraNum} (${sumUpakovka} шт) и передана на Склад готовой продукции!`,
+                                'warning'
+                              );
+                            }}
+                            className="px-3 py-1.5 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-md shadow-cyan-900/30"
+                          >
+                            <BoxIcon className="w-3.5 h-3.5" />
+                            <span>{lang === 'uz' ? 'Omborga yangi tara shakllantirish' : 'Сформировать тару на склад'}</span>
+                          </button>
+                        </div>
+                      </div>
+
+                      {matchingRemainders.length > 0 ? (
+                        <div className="space-y-2 mt-2">
+                          {matchingRemainders.map(({ box: mBox, size: mSize, packedQty: mQty }) => {
+                            const existingStock = mBox.quantity;
+                            const newZatarka = mQty;
+                            const fullBatch = existingStock + newZatarka;
+                            const zatarkaAlertMsg = `В наличии есть остаток ${existingStock} шт. Новая затарка ${newZatarka} шт. Объединив остатки, получаем полноценную партию ${fullBatch} шт. для затарки`;
+
+                            return (
+                              <div key={mBox.id} className="p-3 bg-amber-950/40 border border-amber-600/40 rounded-xl flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-xs">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className="bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded text-[10px] font-mono border border-amber-500/40">
+                                      Тара: {mBox.boxNumber}
+                                    </span>
+                                    <span className="text-white font-bold">{mBox.modelCode}</span>
+                                    <span className="text-slate-400 font-mono">({mBox.article})</span>
+                                    <span className="bg-indigo-900/60 text-indigo-300 px-1.5 py-0.5 rounded text-[10px] font-mono">
+                                      Размер: {mSize}
+                                    </span>
+                                  </div>
+                                  <p className="text-amber-200 font-medium text-[11px] leading-relaxed">
+                                    📢 <strong>{zatarkaAlertMsg}</strong>
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      showValidationToast(zatarkaAlertMsg, 'warning');
+                                      if (onUpdateBoxes) {
+                                        const updated = boxes.map(b => b.id === mBox.id ? {
+                                          ...b,
+                                          quantity: fullBatch,
+                                          status: 'Готов к отгрузке',
+                                          warehouseDate: new Date().toISOString().split('T')[0],
+                                          notes: `Затарка объединена: Заказ ${order.orderNumber} (+${newZatarka} шт)`
+                                        } : b);
+                                        onUpdateBoxes(updated);
+                                      }
+                                    }}
+                                    className="px-3.5 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-amber-950/30 text-xs"
+                                  >
+                                    <GitMerge className="w-3.5 h-3.5" />
+                                    <span>{lang === 'uz' ? 'Qoldiqlarni birlashtirish (Zatarka)' : 'Объединить затарку'}</span>
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-slate-900/50 rounded-xl border border-slate-800 text-[11px] text-slate-400 flex items-center justify-between">
+                          <span className="flex items-center gap-1.5">
+                            <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                            {lang === 'uz' ? 'Omborda aynan ushbu model va artikul bo\'yicha qoldiqlar yo\'q. Yangi tara sifatida qabul qilinadi.' : 'На складе нет остатков по данной модели и артикулу. Партия будет принята отдельной новой тарой.'}
+                          </span>
+                          <span className="text-slate-500 font-mono text-[10px]">
+                            {sumUpakovka > 0 ? `К отправке: ${sumUpakovka} шт` : 'Упакуйте изделия для затарки'}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
-            {/* 5. BRAK TAB */}
+            {/* 5. BRAK TAB (Color Mapped & 3.5% Standard Defect Norm) */}
             {activeTab === 'brak' && (
-              <div className="space-y-4">
-                <div>
-                  <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-rose-500" />
-                    {curr.brak}
-                  </h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? "Umumiy yaroqsiz (brak) mahsulotlar sonini kiriting (o'lchamsiz / mix holda)" : 'Введите общее количество бракованных изделий (вразнобой, без деления по размерам)'}</p>
+              <div className="space-y-5">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                  <div>
+                    <h4 className="text-base font-extrabold text-white flex items-center gap-2">
+                      <AlertTriangle className="w-5 h-5 text-rose-500" />
+                      {curr.brak}
+                    </h4>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {lang === 'uz' 
+                        ? 'Har bir buyurtma rangi bo\'yicha alohida brak hisobi. Standart ruxsat etilgan me\'yor: har bir rang va buyurtma uchun 3.5%.' 
+                        : 'Учет брака раздельно по каждому цвету заказа. Стандартная норма брака: 3.5% на каждый цвет и заказ.'}
+                    </p>
+                  </div>
+
+                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-full text-xs font-mono font-black">
+                    {lang === 'uz' ? 'Standart norma: 3.5%' : 'Стандартная норма: 3.5%'}
+                  </span>
                 </div>
 
-                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 space-y-4">
-                  <div className="space-y-2">
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">{lang === 'uz' ? "Umumiy brak soni" : "Общее кол-vo брака (MIX)"}</label>
-                    <div className="flex items-center gap-3">
-                      <input 
-                        type="number"
-                        value={brakMixQty}
-                        onChange={(e) => setBrakMixQty(Math.max(0, parseInt(e.target.value) || 0))}
-                        className="w-40 px-4 py-3 bg-slate-900 border border-slate-700 text-lg text-white font-mono rounded-xl focus:border-indigo-500 focus:outline-hidden"
-                      />
-                      <div className="inline-flex space-x-1.5">
-                        <button onClick={() => setBrakMixQty(prev => Math.max(0, prev - 1))} className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl cursor-pointer"><Minus className="w-4 h-4 text-slate-400" /></button>
-                        <button onClick={() => setBrakMixQty(prev => prev + 1)} className="p-2.5 bg-rose-950/40 hover:bg-rose-900/40 border border-rose-900/30 rounded-xl cursor-pointer"><Plus className="w-4 h-4 text-rose-400" /></button>
-                        <button onClick={() => setBrakMixQty(0)} className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-xs text-rose-400 font-bold cursor-pointer">{lang === 'uz' ? 'Tozalash' : 'Очистить'}</button>
+                {/* Overall Defect Norm vs Actual KPI Banner */}
+                {(() => {
+                  const totalOrderBase = order.qtyOrder || effectiveQtyOrder;
+                  const totalNorm35 = Math.round(totalOrderBase * 0.035);
+                  const currentTotalDefects = sumBrak + brakMixQty;
+                  const isWithinNorm = currentTotalDefects <= totalNorm35;
+
+                  return (
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                        <span className="text-[10px] text-slate-500 font-extrabold uppercase tracking-wider block">{lang === 'uz' ? 'Buyurtma hajmi' : 'Объем заказа'}</span>
+                        <span className="text-lg font-black text-white font-mono mt-0.5 block">{totalOrderBase.toLocaleString()} {lang === 'uz' ? 'dona' : 'шт'}</span>
+                      </div>
+
+                      <div className="bg-slate-950 p-3.5 rounded-xl border border-slate-800">
+                        <span className="text-[10px] text-amber-500 font-extrabold uppercase tracking-wider block">{lang === 'uz' ? 'Ruxsat etilgan 3.5% norma' : 'Допустимая норма (3.5%)'}</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5">
+                          <span className="text-lg font-black text-amber-400 font-mono">{totalNorm35.toLocaleString()}</span>
+                          <span className="text-xs text-slate-400">{lang === 'uz' ? 'dona' : 'шт'}</span>
+                        </div>
+                      </div>
+
+                      <div className={`p-3.5 rounded-xl border ${isWithinNorm ? 'bg-emerald-950/30 border-emerald-900/50' : 'bg-rose-950/40 border-rose-900/60'}`}>
+                        <span className="text-[10px] font-extrabold uppercase tracking-wider block text-slate-300">{lang === 'uz' ? 'Haqiqiy qayd etilgan brak' : 'Фактический брак'}</span>
+                        <div className="flex items-baseline gap-1.5 mt-0.5 font-mono">
+                          <span className={`text-lg font-black ${isWithinNorm ? 'text-emerald-400' : 'text-rose-400'}`}>{currentTotalDefects.toLocaleString()}</span>
+                          <span className="text-xs text-slate-400">({totalOrderBase > 0 ? ((currentTotalDefects / totalOrderBase) * 100).toFixed(1) : 0}%)</span>
+                          <span className={`text-[10px] font-black px-1.5 py-0.5 rounded ml-auto ${isWithinNorm ? 'bg-emerald-500/20 text-emerald-400' : 'bg-rose-500/20 text-rose-400'}`}>
+                            {isWithinNorm ? (lang === 'uz' ? 'Norma ichida' : 'В норме') : (lang === 'uz' ? 'Normadan oshdi' : 'Превышение')}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                  );
+                })()}
+
+                {/* Defect Per Registered Color Table */}
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                  <h5 className="font-extrabold text-xs text-white uppercase tracking-wider">
+                    {lang === 'uz' ? 'Buyurtmadagi ranglar bo\'yicha 3.5% brak normasi va haqiqiy ko\'rsatkich:' : 'Норма брака 3.5% и факт по цветам заказа:'}
+                  </h5>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left text-slate-300">
+                      <thead>
+                        <tr className="border-b border-slate-800 text-[10px] text-slate-500 font-extrabold uppercase">
+                          <th className="pb-2.5">{lang === 'uz' ? 'Rang' : 'Цвет'}</th>
+                          <th className="pb-2.5 text-center">{lang === 'uz' ? 'Buyurtma miqdori' : 'Кол-во заказа'}</th>
+                          <th className="pb-2.5 text-center text-amber-400">{lang === 'uz' ? '3.5% Standart norma' : 'Норма 3.5%'}</th>
+                          <th className="pb-2.5 text-center text-rose-400">{lang === 'uz' ? 'Haqiqiy brak (dona)' : 'Факт брака (шт)'}</th>
+                          <th className="pb-2.5 text-right">{lang === 'uz' ? 'Farq / Holat' : 'Разница / Статус'}</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-850">
+                        {(colorVariants && colorVariants.length > 0 ? colorVariants : [{
+                          color: order.color || 'Standart',
+                          sizes: order.sizes || {},
+                          qtyOrder: order.qtyOrder || effectiveQtyOrder,
+                          qtyCut: order.qtyCut || 0,
+                          qtyPotok: 0,
+                          qtyPackaging: 0
+                        }]).map((variant, cIdx) => {
+                          const vQty = variant.qtyOrder || (Object.values(variant.sizes || {}).reduce<number>((a, b) => a + (Number(b) || 0), 0)) || order.qtyOrder || 0;
+                          const norm35 = Math.round(vQty * 0.035);
+                          const currentBrak = brakPerColor[variant.color]?.qty || variant.brakQty || 0;
+                          const isOk = currentBrak <= norm35;
+                          const delta = currentBrak - norm35;
+
+                          return (
+                            <tr key={cIdx} className="hover:bg-slate-900/40">
+                              <td className="py-3 font-bold text-white flex items-center gap-2">
+                                <span 
+                                  className="w-3.5 h-3.5 rounded-full border border-slate-700 shrink-0" 
+                                  style={{ backgroundColor: variant.colorCode || '#ffffff' }}
+                                />
+                                <span>{variant.color}</span>
+                              </td>
+                              <td className="py-3 text-center font-mono font-bold text-slate-300">
+                                {vQty.toLocaleString()}
+                              </td>
+                              <td className="py-3 text-center font-mono font-extrabold text-amber-400 bg-amber-950/10">
+                                {norm35} {lang === 'uz' ? 'dona' : 'шт'}
+                              </td>
+                              <td className="py-3 text-center">
+                                <input
+                                  type="text"
+                                  inputMode="numeric"
+                                  value={currentBrak > 0 ? currentBrak : ''}
+                                  placeholder="0"
+                                  onChange={(e) => {
+                                    const clean = e.target.value.replace(/[^\d]/g, '');
+                                    const val = clean === '' ? 0 : parseInt(clean, 10);
+                                    setBrakPerColor(prev => ({
+                                      ...prev,
+                                      [variant.color]: {
+                                        qty: val,
+                                        norm: norm35,
+                                        note: prev[variant.color]?.note || ''
+                                      }
+                                    }));
+                                  }}
+                                  className="w-20 px-2 py-1 text-center bg-slate-900 border border-slate-700 text-rose-400 font-mono font-black text-xs rounded-lg focus:border-rose-500 focus:outline-hidden"
+                                />
+                              </td>
+                              <td className="py-3 text-right">
+                                {isOk ? (
+                                  <span className="inline-flex items-center gap-1 bg-emerald-950/40 text-emerald-400 border border-emerald-900/40 px-2.5 py-0.5 rounded-lg text-[10px] font-bold">
+                                    <Check className="w-3 h-3" />
+                                    {lang === 'uz' ? 'Norma ichida' : 'В норме'} ({delta <= 0 ? delta : `+${delta}`})
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 bg-rose-950/60 text-rose-300 border border-rose-800/60 px-2.5 py-0.5 rounded-lg text-[10px] font-black">
+                                    <AlertTriangle className="w-3 h-3" />
+                                    +{delta} {lang === 'uz' ? 'me\'yordan ortiq!' : 'выше нормы!'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
 
-                <div className="bg-rose-950/20 border border-rose-900/40 p-4 rounded-2xl flex items-center gap-3">
-                  <AlertTriangle className="w-5 h-5 text-rose-400 shrink-0" />
-                  <div className="text-xs text-rose-300">
-                    <span className="font-bold">{lang === 'uz' ? 'Brak darajasi:' : 'Уровень брака:'}</span> {defectPercent}% {lang === 'uz' ? 'umumiy buyurtma hajmidan' : 'от общего объема заказа'}.
+                {/* Additional Mix / General Defect Input */}
+                <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2">
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    {lang === 'uz' ? "Umumiy aralash brak (Mix holda, rangsiz):" : "Общее кол-во брака (MIX / вразнобой):"}
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input 
+                      type="text"
+                      inputMode="numeric"
+                      value={brakMixQty > 0 ? brakMixQty : ''}
+                      placeholder="0"
+                      onChange={(e) => {
+                        const clean = e.target.value.replace(/[^\d]/g, '');
+                        setBrakMixQty(clean === '' ? 0 : parseInt(clean, 10));
+                      }}
+                      className="w-36 px-3 py-2 bg-slate-900 border border-slate-700 text-white font-mono rounded-xl focus:border-indigo-500 focus:outline-hidden text-sm font-bold"
+                    />
+                    <button onClick={() => setBrakMixQty(prev => Math.max(0, prev - 1))} className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl cursor-pointer"><Minus className="w-4 h-4 text-slate-400" /></button>
+                    <button onClick={() => setBrakMixQty(prev => prev + 1)} className="p-2 bg-rose-950/40 hover:bg-rose-900/40 border border-rose-900/30 rounded-xl cursor-pointer"><Plus className="w-4 h-4 text-rose-400" /></button>
+                    <button onClick={() => setBrakMixQty(0)} className="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-xl text-xs text-rose-400 font-bold cursor-pointer">{lang === 'uz' ? 'Tozalash' : 'Очистить'}</button>
                   </div>
                 </div>
               </div>
@@ -1599,71 +2333,133 @@ export default function OrderDetailModal({
             {/* 6. STIKER & 1C TAB */}
             {activeTab === 'stiker' && (
               <div className="space-y-5">
-                <div>
-                  <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-                    <QrCode className="w-4 h-4 text-emerald-400" />
-                    {curr.stiker}
-                  </h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? '1C shtrix-kod, artikul tekshirish va QR kodli stiker tizimi' : 'Печать стикеров 1С, проверка штрих-кодов и артикулов'}</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <h4 className="text-base font-extrabold text-white flex items-center gap-2">
+                      <QrCode className="w-4 h-4 text-emerald-400" />
+                      {curr.stiker} & 1C
+                    </h4>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {lang === 'uz' 
+                        ? '1C emissiya raqami, buyurtma stikerlari hisobi va termo-printer uchun to\'g\'ridan-to\'g\'ri chop etish' 
+                        : 'Номер эмиссии 1С, учет стикеров заказа и прямой переход в конструктор термо-этикеток'}
+                    </p>
+                  </div>
+
+                  {/* Direct Action Button to Sticker Designer / Printing Module */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (onNavigateToTab) {
+                        onNavigateToTab('labels');
+                        onClose();
+                      }
+                    }}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-extrabold text-xs rounded-xl shadow-lg shadow-emerald-950/40 cursor-pointer transition-all shrink-0 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    <span>{lang === 'uz' ? 'Stiker Konstruktoriga O\'tish (Chop Etish)' : 'Открыть Конструктор Стикеров'}</span>
+                  </button>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                  
-                  {/* Sticker controls */}
+                  {/* Left Column: 1C Emission Number + Order-Specific Sticker Counts */}
                   <div className="space-y-4">
-                    <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-                      <div className="flex justify-between items-center">
-                        <h5 className="font-bold text-xs text-white uppercase tracking-wider">{curr.printStickers}</h5>
+                    {/* 1C Emission Number Card (Clean, strictly 1C emission as requested) */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-2.5">
+                      <label className="block text-[11px] font-extrabold uppercase tracking-wider text-emerald-400 flex items-center gap-2">
+                        <QrCode className="w-4 h-4" />
+                        {lang === 'uz' ? '1C Emissiya Raqami (Emission Number):' : 'Номер эмиссии 1С (Emission Number):'}
+                      </label>
+                      <div className="flex gap-2">
+                        <input 
+                          type="text"
+                          value={oneCOrderEmission}
+                          onChange={(e) => setOneCOrderEmission(e.target.value)}
+                          placeholder={lang === 'uz' ? 'Masalan: EM-2026-0847' : 'Например: EM-2026-0847'}
+                          className="flex-1 px-3.5 py-2.5 bg-slate-900 border border-slate-700/80 rounded-xl text-sm text-white font-mono font-bold focus:border-emerald-500 focus:outline-hidden"
+                        />
                         <button
+                          type="button"
                           onClick={() => {
-                            sizeKeys.forEach(s => {
-                              const qty = stickerQuantities[s] || 0;
-                              if (qty > 0) {
-                                // print!
-                              }
-                            });
+                            showValidationToast(lang === 'uz' ? '1C emissiya raqami saqlandi' : 'Номер эмиссии 1С сохранен');
+                          }}
+                          className="px-4 py-2.5 bg-slate-900 hover:bg-slate-850 border border-slate-700 text-emerald-400 hover:text-emerald-300 font-extrabold text-xs rounded-xl cursor-pointer transition-all"
+                        >
+                          {lang === 'uz' ? 'Tasdiqlash' : 'Применить'}
+                        </button>
+                      </div>
+                      <p className="text-[10px] text-slate-400">
+                        {lang === 'uz' 
+                          ? '1C tizimidan olingan partiya / emissiya kodi stikerlarga avtomatik joylashtiriladi.' 
+                          : 'Номер эмиссии из 1С автоматически отображается на термо-стикерах заказа.'}
+                      </p>
+                    </div>
+
+                    {/* Order-Specific Sticker Counts Table */}
+                    <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <h5 className="font-extrabold text-xs text-white uppercase tracking-wider flex items-center gap-2">
+                          <Printer className="w-4 h-4 text-emerald-400" />
+                          {lang === 'uz' ? 'Buyurtma Stikerlari Soni (O\'lchamlar bo\'yicha)' : 'Стикеры заказа по размерам'}
+                        </h5>
+                        <button
+                          type="button"
+                          onClick={() => {
                             setShowStickerPrintSuccess(true);
                             setTimeout(() => setShowStickerPrintSuccess(false), 4000);
                           }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-extrabold text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
+                          className="bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-[10px] px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
                           <Printer className="w-3 h-3" />
                           {lang === 'uz' ? "Barchasini Chop Etish" : "Печать всех"}
                         </button>
                       </div>
 
-                      <div className="overflow-x-auto">
+                      <div className="overflow-x-auto rounded-xl border border-slate-850">
                         <table className="w-full text-xs text-left text-slate-300">
                           <thead>
-                            <tr className="border-b border-slate-800 text-[10px] text-slate-500 font-extrabold uppercase">
-                              <th className="pb-2 text-center">{curr.sizes}</th>
-                              <th className="pb-2 text-center">{lang === 'uz' ? 'Qadoq' : 'Упак.'}</th>
-                              <th className="pb-2 text-center">{lang === 'uz' ? 'Soni' : 'Кол-vo'}</th>
-                              <th className="pb-2 text-right">{curr.actions}</th>
+                            <tr className="bg-slate-900/80 border-b border-slate-800 text-[10px] text-slate-500 font-extrabold uppercase">
+                              <th className="py-2.5 px-3 text-center">{curr.sizes}</th>
+                              <th className="py-2.5 px-3 text-center text-slate-400">{lang === 'uz' ? 'Qadoq soni' : 'Упаковано'}</th>
+                              <th className="py-2.5 px-3 text-center text-emerald-400">{lang === 'uz' ? 'Chop soni' : 'Печать шт.'}</th>
+                              <th className="py-2.5 px-3 text-right">{curr.actions}</th>
                             </tr>
                           </thead>
-                          <tbody className="divide-y divide-slate-850">
+                          <tbody className="divide-y divide-slate-850/60">
                             {sizeKeys.map(size => {
                               const packed = upakovka[size] || 0;
+                              const defaultStickerQty = stickerQuantities[size] !== undefined ? stickerQuantities[size] : (packed > 0 ? packed : (orderSizes[size] || order.sizes[size] || 0));
                               return (
-                                <tr key={size} className="hover:bg-slate-900/30">
-                                  <td className="py-2 font-bold font-mono text-center text-white">{size}</td>
-                                  <td className="py-2 font-mono text-center text-slate-500">{packed}</td>
-                                  <td className="py-2 text-center">
+                                <tr key={size} className="hover:bg-slate-900/40 transition-colors">
+                                  <td className="py-2 px-3 font-bold font-mono text-center text-white">
+                                    <span className="inline-block bg-slate-900 border border-slate-700/80 px-2 py-0.5 rounded text-xs">
+                                      {size}
+                                    </span>
+                                  </td>
+                                  <td className="py-2 px-3 font-mono text-center text-slate-400">{packed}</td>
+                                  <td className="py-2 px-3 text-center">
                                     <input 
-                                      type="number"
-                                      value={stickerQuantities[size] !== undefined ? stickerQuantities[size] : 10}
+                                      type="text"
+                                      inputMode="numeric"
+                                      value={defaultStickerQty}
                                       onChange={(e) => {
-                                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                                        const clean = e.target.value.replace(/[^\d]/g, '');
+                                        const val = clean === '' ? 0 : parseInt(clean, 10);
                                         setStickerQuantities(prev => ({ ...prev, [size]: val }));
                                       }}
-                                      className="w-16 px-1.5 py-1 bg-slate-900 border border-slate-800 text-center text-white font-mono rounded focus:border-indigo-500 focus:outline-hidden"
+                                      className="w-18 px-2 py-1 bg-slate-900 border border-slate-750 text-center text-white font-mono font-bold rounded-lg focus:border-emerald-500 focus:outline-hidden"
                                     />
                                   </td>
-                                  <td className="py-2 text-right">
+                                  <td className="py-2 px-3 text-right">
                                     <button 
-                                      onClick={() => triggerStickerPrint(size, stickerQuantities[size] || 10)}
-                                      className="px-2.5 py-1 bg-emerald-950/40 hover:bg-emerald-900/40 text-emerald-400 border border-emerald-900/30 rounded font-bold text-[10px] cursor-pointer transition-colors"
+                                      type="button"
+                                      onClick={() => {
+                                        setSelectedSizeForSticker(size);
+                                        setStickerPrintQty(defaultStickerQty);
+                                        triggerStickerPrint(size, defaultStickerQty);
+                                      }}
+                                      className="px-2.5 py-1 bg-emerald-950/60 hover:bg-emerald-900/80 text-emerald-300 border border-emerald-800/60 rounded-lg font-bold text-[10px] cursor-pointer transition-colors"
                                       title={lang === 'uz' ? "Stiker chop etish" : "Печать стикера"}
                                     >
                                       {lang === 'uz' ? "Chop" : "Печать"}
@@ -1683,185 +2479,82 @@ export default function OrderDetailModal({
                         </div>
                       )}
                     </div>
-
-                    {/* Virtual Sticker Layout Preview */}
-                    <div className="bg-white text-slate-900 p-5 rounded-2xl border-2 border-dashed border-slate-300 shadow-lg font-mono flex flex-col justify-between max-w-[320px] mx-auto min-h-[260px]">
-                      <div className="border-b pb-2 border-slate-200">
-                        <div className="flex justify-between items-center text-[9px] text-slate-500 font-bold uppercase">
-                          <span>STARK COTTON ERP</span>
-                          <span>1C: {oneCOrderEmission || 'EM-4790'}</span>
-                        </div>
-                        <h4 className="text-sm font-black tracking-tight text-slate-900 mt-1">{order.brandName}</h4>
-                      </div>
-
-                      <div className="space-y-1.5 py-4 text-[11px]">
-                        <div><strong className="text-slate-500 uppercase text-[9px] block">MOS CODE:</strong> <span className="font-bold text-slate-900">{order.mosCode}</span></div>
-                        <div><strong className="text-slate-500 uppercase text-[9px] block">MODEL:</strong> <span className="font-semibold text-slate-800">{order.modelCode}</span></div>
-                        <div className="flex justify-between">
-                          <div><strong className="text-slate-500 uppercase text-[9px] block">SIZE:</strong> <span className="font-extrabold text-xs text-slate-900 bg-slate-200 px-1.5 py-0.5 rounded">{selectedSizeForSticker}</span></div>
-                          <div><strong className="text-slate-500 uppercase text-[9px] block">COLOR:</strong> <span className="font-bold text-slate-800">{order.color.split(' ')[0]}</span></div>
-                          <div><strong className="text-slate-500 uppercase text-[9px] block">QTY:</strong> <span className="font-bold text-slate-800">{stickerPrintQty} {lang === 'uz' ? 'dona' : 'шт'}</span></div>
-                        </div>
-                      </div>
-
-                      {/* QR Code Graphic Mockup */}
-                      <div className="border-t pt-3 border-slate-200 flex items-center justify-between gap-4">
-                        <div className="space-y-0.5">
-                          <span className="text-[7px] text-slate-400 block font-bold">1C BARCODE</span>
-                          <div className="flex space-x-0.5 h-6 items-center">
-                            <span className="bg-slate-950 w-1 h-full"></span>
-                            <span className="bg-slate-950 w-0.5 h-full"></span>
-                            <span className="bg-slate-950 w-1.5 h-full"></span>
-                            <span className="bg-slate-950 w-0.5 h-full"></span>
-                            <span className="bg-slate-950 w-1 h-full"></span>
-                            <span className="bg-slate-950 w-2 h-full"></span>
-                            <span className="bg-slate-950 w-0.5 h-full"></span>
-                            <span className="bg-slate-950 w-1 h-full"></span>
-                          </div>
-                          <span className="text-[8px] font-bold text-slate-600 block tracking-widest">1C*{order.mosCode.replace(/ /g, '')}*</span>
-                        </div>
-
-                        {/* Mock dynamic QR SVG */}
-                        <div className="w-12 h-12 bg-slate-100 p-1 rounded-sm border flex items-center justify-center shrink-0">
-                          <svg className="w-full h-full text-slate-900" viewBox="0 0 100 100">
-                            <rect width="100" height="100" fill="none" />
-                            <rect x="0" y="0" width="30" height="30" fill="currentColor" />
-                            <rect x="5" y="5" width="20" height="20" fill="white" />
-                            <rect x="10" y="10" width="10" height="10" fill="currentColor" />
-
-                            <rect x="70" y="0" width="30" height="30" fill="currentColor" />
-                            <rect x="75" y="5" width="20" height="20" fill="white" />
-                            <rect x="80" y="10" width="10" height="10" fill="currentColor" />
-
-                            <rect x="0" y="70" width="30" height="30" fill="currentColor" />
-                            <rect x="5" y="75" width="20" height="20" fill="white" />
-                            <rect x="10" y="80" width="10" height="10" fill="currentColor" />
-
-                            <rect x="40" y="40" width="20" height="20" fill="currentColor" />
-                            <rect x="80" y="80" width="20" height="20" fill="currentColor" />
-                            <rect x="45" y="15" width="10" height="15" fill="currentColor" />
-                            <rect x="15" y="45" width="15" height="10" fill="currentColor" />
-                          </svg>
-                        </div>
-                      </div>
-                    </div>
                   </div>
 
-                  {/* 1C Barcode Verification Area */}
-                  <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-                    <h5 className="font-extrabold text-xs text-white uppercase tracking-wider flex items-center gap-1.5 text-indigo-400">
-                      <CheckCircle className="w-4 h-4 text-emerald-400" />
-                      {lang === 'uz' ? '1C BARCODE VA ARTIKUL TEKSHIRUVI (VERIFIER)' : 'ПРОВЕРКА ШТРИХ-КОДОВ И АРТИКУЛОВ 1С'}
-                    </h5>
-                    <p className="text-[11px] text-slate-400">
-                      {lang === 'uz' 
-                        ? "Stikerdagi shtrix-kod va artikullarni 1C ma'lumotlar bazasiga solishtirib to'g'riligini tekshiring." 
-                        : "Сравните штрих-коды и артикулы на этикетках с базой данных 1С для проверки на корректность."}
+                  {/* Right Column: Virtual 40x58 mm Sticker Preview */}
+                  <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 flex flex-col justify-between items-center">
+                    <div className="w-full flex justify-between items-center mb-3">
+                      <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                        {lang === 'uz' ? 'Termo Stiker Namunasi (40 x 58 mm Standart)' : 'Образец термо-стикера (40 x 58 мм)'}
+                      </span>
+                      <span className="text-[10px] bg-emerald-950/60 text-emerald-400 border border-emerald-800/50 px-2 py-0.5 rounded-full font-mono font-bold">
+                        40x58 mm
+                      </span>
+                    </div>
+
+                    {/* Virtual Sticker Layout Preview */}
+                    <div className="bg-white text-slate-950 p-4 rounded-xl border-2 border-dashed border-slate-300 shadow-xl font-mono flex flex-col justify-between w-full max-w-[280px] min-h-[340px]">
+                      <div className="border-b pb-2 border-slate-200">
+                        <div className="flex justify-between items-center text-[8px] text-slate-500 font-bold uppercase">
+                          <span>TEX ERP V1.0</span>
+                          <span className="text-emerald-700 font-black">1C: {oneCOrderEmission || 'EM-2026-0847'}</span>
+                        </div>
+                        <h4 className="text-xs font-black tracking-tight text-slate-950 mt-1 uppercase truncate">{order.brandName || 'CHUST TEXTILE'}</h4>
+                      </div>
+
+                      <div className="space-y-1 py-3 text-[10px] leading-tight text-slate-800">
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 uppercase text-[8px]">MOS:</span>
+                          <span className="font-bold">{order.mosCode}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 uppercase text-[8px]">MODEL:</span>
+                          <span className="font-bold truncate max-w-[150px]">{order.modelCode}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-500 uppercase text-[8px]">COLOR:</span>
+                          <span className="font-bold truncate max-w-[150px]">{order.color.split(' ')[0]}</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1 border-t border-slate-150">
+                          <span className="text-slate-500 uppercase text-[8px]">SIZE / РАЗМЕР:</span>
+                          <span className="font-black text-sm bg-slate-950 text-white px-2 py-0.5 rounded">{selectedSizeForSticker}</span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span className="text-slate-500 uppercase text-[8px]">PRINT QTY:</span>
+                          <span className="font-bold text-slate-950">{stickerPrintQty} {lang === 'uz' ? 'dona' : 'шт'}</span>
+                        </div>
+                      </div>
+
+                      {/* Barcode & EAC Graphic Mockup */}
+                      <div className="border-t pt-2 border-slate-200">
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 space-y-0.5">
+                            <div className="flex space-x-0.5 h-6 items-center">
+                              <span className="bg-slate-950 w-1 h-full"></span>
+                              <span className="bg-slate-950 w-0.5 h-full"></span>
+                              <span className="bg-slate-950 w-1.5 h-full"></span>
+                              <span className="bg-slate-950 w-0.5 h-full"></span>
+                              <span className="bg-slate-950 w-1 h-full"></span>
+                              <span className="bg-slate-950 w-2 h-full"></span>
+                              <span className="bg-slate-950 w-0.5 h-full"></span>
+                              <span className="bg-slate-950 w-1 h-full"></span>
+                              <span className="bg-slate-950 w-1.5 h-full"></span>
+                            </div>
+                            <span className="text-[7px] font-bold text-slate-600 block tracking-widest">
+                              462033684{selectedSizeForSticker.charCodeAt(0) % 100}
+                            </span>
+                          </div>
+
+                          <div className="ml-2 font-black text-xs border border-slate-800 px-1 py-0.5 leading-none">
+                            EAC
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-[10px] text-slate-500 text-center mt-3">
+                      {lang === 'uz' ? '40x58 mm termo lenta o\'lchamiga to\'liq moslashtirilgan' : 'Оптимизировано для термоленты формата 40x58 мм'}
                     </p>
-
-                    {/* Article Verifier */}
-                    <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-850 space-y-2.5">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                        {lang === 'uz' ? 'Artikul Tekshirish (1C 30 ta artikul)' : 'Проверить артикул (30 артикулов 1С)'}
-                      </label>
-                      <div className="flex gap-2">
-                        <input 
-                          type="text"
-                          placeholder="Masalan: ART-005"
-                          value={testArticleInput}
-                          onChange={(e) => {
-                            setTestArticleInput(e.target.value);
-                            setTestArticleResult('idle');
-                          }}
-                          className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
-                        />
-                        <button 
-                          onClick={() => {
-                            const isCorrect = Array.from({ length: 30 }, (_, i) => `ART-${(i + 1).toString().padStart(3, '0')}`).includes(testArticleInput.trim().toUpperCase());
-                            setTestArticleResult(isCorrect ? 'correct' : 'incorrect');
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0 cursor-pointer"
-                        >
-                          {lang === 'uz' ? 'Solishtirish' : 'Проверить'}
-                        </button>
-                      </div>
-
-                      {/* Display article result */}
-                      {testArticleResult !== 'idle' && (
-                        <div className={`text-xs font-bold p-2.5 rounded-lg flex items-center gap-2 ${
-                          testArticleResult === 'correct' ? 'bg-emerald-950/40 border border-emerald-900/30 text-emerald-400' : 'bg-rose-950/40 border border-rose-900/30 text-rose-400'
-                        }`}>
-                          {testArticleResult === 'correct' ? (
-                            <>
-                              <span className="inline-block bg-emerald-500 text-slate-950 font-black rounded-full text-[9px] w-4 h-4 text-center leading-4">✓</span>
-                              <span>{lang === 'uz' ? "TO'G'RI: Artikul 1C bazasida tasdiqlandi!" : 'ВЕРНО: Артикул подтвержден в 1С!'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="inline-block bg-rose-500 text-slate-950 font-black rounded-full text-[9px] w-4 h-4 text-center leading-4">✗</span>
-                              <span>{lang === 'uz' ? "XATO! Artikul 1C bazasida topilmadi!" : 'ОШИБКА! Артикул не найден в базе 1С!'}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Barcode Verifier */}
-                    <div className="bg-slate-900/60 p-4 rounded-xl border border-slate-850 space-y-2.5">
-                      <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300">
-                        {lang === 'uz' ? 'Shtrix-Kod Tekshirish (1C 200 ta shtrix-kod)' : 'Проверить штрих-код (200 штрих-кодов 1С)'}
-                      </label>
-                      <div className="flex gap-2">
-                        <input 
-                          type="text"
-                          placeholder="Masalan: BC-100015"
-                          value={testBarcodeInput}
-                          onChange={(e) => {
-                            setTestBarcodeInput(e.target.value);
-                            setTestBarcodeResult('idle');
-                          }}
-                          className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white font-mono"
-                        />
-                        <button 
-                          onClick={() => {
-                            const isCorrect = Array.from({ length: 200 }, (_, i) => `BC-${(100000 + i).toString()}`).includes(testBarcodeInput.trim().toUpperCase());
-                            setTestBarcodeResult(isCorrect ? 'correct' : 'incorrect');
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-colors shrink-0 cursor-pointer"
-                        >
-                          {lang === 'uz' ? 'Solishtirish' : 'Проверить'}
-                        </button>
-                      </div>
-
-                      {/* Display barcode result */}
-                      {testBarcodeResult !== 'idle' && (
-                        <div className={`text-xs font-bold p-2.5 rounded-lg flex items-center gap-2 ${
-                          testBarcodeResult === 'correct' ? 'bg-emerald-950/40 border border-emerald-900/30 text-emerald-400' : 'bg-rose-950/40 border border-rose-900/30 text-rose-400'
-                        }`}>
-                          {testBarcodeResult === 'correct' ? (
-                            <>
-                              <span className="inline-block bg-emerald-500 text-slate-950 font-black rounded-full text-[9px] w-4 h-4 text-center leading-4">✓</span>
-                              <span>{lang === 'uz' ? "TO'G'RI: Shtrix-kod 1C stikeri bilan to'liq mos keldi!" : 'ВЕРНО: Штрих-код полностью совпал со стикером 1С!'}</span>
-                            </>
-                          ) : (
-                            <>
-                              <span className="inline-block bg-rose-500 text-slate-950 font-black rounded-full text-[9px] w-4 h-4 text-center leading-4">✗</span>
-                              <span>{lang === 'uz' ? "XATO! Shtrix-kod stikeri xato yoki 1C da ro'yxatda yo'q!" : 'ОШИБКА! Неверный код либо отсутствует в 1С!'}</span>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Sample tester helpers */}
-                    <div className="bg-indigo-950/30 p-3 rounded-xl border border-indigo-900/30 space-y-1.5">
-                      <span className="block text-[9px] font-black uppercase text-indigo-400 tracking-widest">{lang === 'uz' ? 'TEST LOBBY (NAMUNAVIY KODLAR)' : 'ТЕСТОВЫЕ КОДЫ ДЛЯ ПРОВЕРКИ'}</span>
-                      <div className="text-[10px] text-slate-300 space-y-1">
-                        <div>• {lang === 'uz' ? 'Tasdiqlangan Artikul namunalari:' : 'Примеры верных артикулов:'} <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">ART-001</code>, <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">ART-015</code>, <code className="bg-slate-900 px-1 py-0.5 rounded text-indigo-300 font-mono">ART-030</code></div>
-                        <div>• {lang === 'uz' ? 'Shtrix-kod namunalari (BC-100000 dan BC-100199 gacha):' : 'Примеры верных штрих-кодов (от BC-100000 до BC-100199):'} <code className="bg-slate-900 px-1 py-0.5 rounded text-emerald-300 font-mono">BC-100000</code>, <code className="bg-slate-900 px-1 py-0.5 rounded text-emerald-300 font-mono">BC-100100</code>, <code className="bg-slate-900 px-1 py-0.5 rounded text-emerald-300 font-mono">BC-100199</code></div>
-                      </div>
-                    </div>
-
                   </div>
                 </div>
               </div>
@@ -1985,64 +2678,97 @@ export default function OrderDetailModal({
             {/* 8. PRINT TAB */}
             {activeTab === 'print' && (
               <div className="space-y-4">
-                <div>
-                  <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-                    <Printer className="w-4 h-4 text-cyan-400" />
-                    {curr.print}
-                  </h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Mato ustiga pechat / rasm bosish talablari' : 'Параметры печати рисунков и логотипов'}</p>
-                </div>
-
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-                  <div className="flex items-center gap-3 bg-slate-900/50 p-3 rounded-xl border border-slate-800">
-                    <input 
-                      type="checkbox"
-                      id="modalPrintReq"
-                      checked={printRequired}
-                      onChange={(e) => setPrintRequired(e.target.checked)}
-                      className="w-4 h-4 rounded text-indigo-600 bg-slate-950 border-slate-800 focus:ring-indigo-500"
-                    />
-                    <label htmlFor="modalPrintReq" className="text-xs font-bold text-white cursor-pointer">{lang === 'uz' ? 'Pechat (Print) kerak' : 'Требуется печать'}</label>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <h4 className="text-base font-extrabold text-white flex items-center gap-2">
+                      <Printer className="w-4 h-4 text-cyan-400" />
+                      {curr.print} (Принт)
+                    </h4>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {lang === 'uz' 
+                        ? 'Mato ustiga bosiladigan print yoki logo etalon eskizi' 
+                        : 'Эталонный эскиз принта или логотипа для нанесения на ткань'}
+                    </p>
                   </div>
 
-                  {printRequired && (
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5">
-                          <label className="block text-[11px] text-slate-400">{lang === 'uz' ? 'Print nomi / Dizayn nomi' : 'Название принта / дизайна'}</label>
-                          <input
-                            type="text"
-                            placeholder={lang === 'uz' ? 'Masalan: Nike logo, Vintage print...' : 'Например: логотип Nike, Винтажный принт...'}
-                            value={printName}
-                            onChange={(e) => setPrintName(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500"
-                          />
-                        </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-bold">{curr.status}:</span>
+                    <select
+                      value={printStatus}
+                      onChange={(e) => setPrintStatus(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-white focus:outline-hidden font-bold"
+                    >
+                      <option value="kutilmoqda">{curr.status_kutilmoqda}</option>
+                      <option value="bosilmoqda">{curr.status_bajarilmoqda}</option>
+                      <option value="yakunlandi">{curr.status_yakunlandi}</option>
+                    </select>
+                  </div>
+                </div>
 
-                        <div className="space-y-1.5">
-                          <label className="block text-[11px] text-slate-400">{curr.status}</label>
-                          <select
-                            value={printStatus}
-                            onChange={(e) => setPrintStatus(e.target.value)}
-                            className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white"
+                {/* Dedicated Clean Image Upload / Preview Zone */}
+                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800">
+                  {printArtworkUrl ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-cyan-400" />
+                          {lang === 'uz' ? 'Tasdiqlangan print eskizi:' : 'Утвержденный эскиз принта:'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setZoomImageModal({ url: printArtworkUrl, title: lang === 'uz' ? 'Print Eskizi' : 'Эскиз принта' })}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
                           >
-                            <option value="kutilmoqda">{curr.status_kutilmoqda}</option>
-                            <option value="bosilmoqda">{curr.status_bajarilmoqda}</option>
-                            <option value="yakunlandi">{curr.status_yakunlandi}</option>
-                          </select>
+                            <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                            <span>{lang === 'uz' ? 'Kattalashtirish (Zoom)' : 'Увеличить (Zoom)'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPrintArtworkUrl(null)}
+                            className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-900/40 text-rose-300 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                            <span>{lang === 'uz' ? 'O\'chirish' : 'Удалить'}</span>
+                          </button>
                         </div>
                       </div>
 
-                      <div className="space-y-1.5">
-                        <label className="block text-[11px] text-slate-400">{curr.details}</label>
-                        <textarea
-                          placeholder={lang === 'uz' ? 'Dizayn nomi, ranglar, pechat uslubi...' : 'Название дизайна, цвета, способ печати...'}
-                          value={printDetails}
-                          onChange={(e) => setPrintDetails(e.target.value)}
-                          className="w-full h-24 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden"
+                      <div 
+                        onClick={() => setZoomImageModal({ url: printArtworkUrl, title: lang === 'uz' ? 'Print Eskizi' : 'Эскиз принта' })}
+                        className="relative group w-full max-h-[380px] rounded-xl overflow-hidden bg-slate-900/80 border border-slate-800 flex items-center justify-center p-3 cursor-pointer shadow-inner"
+                      >
+                        <img 
+                          src={printArtworkUrl} 
+                          alt="Print Design" 
+                          className="max-h-[360px] w-auto max-w-full object-contain rounded-lg transition-transform duration-200 group-hover:scale-[1.01]" 
                         />
+                        <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <span className="bg-slate-900/90 text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 shadow-lg">
+                            <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                            {lang === 'uz' ? 'Kattalashtirib ko\'rish' : 'Нажмите для зума'}
+                          </span>
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <label className="border-2 border-dashed border-slate-800 hover:border-cyan-500/50 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-900/30 group">
+                      <div className="p-4 bg-slate-900 group-hover:bg-cyan-950/30 rounded-2xl text-slate-400 group-hover:text-cyan-400 transition-colors mb-3">
+                        <Upload className="w-8 h-8" />
+                      </div>
+                      <span className="text-sm font-extrabold text-white text-center">
+                        {lang === 'uz' ? 'Print yoki logo rasmini yuklang' : 'Загрузите изображение принта или логотипа'}
+                      </span>
+                      <span className="text-xs text-slate-500 mt-1 text-center">
+                        {lang === 'uz' ? 'PNG, JPG, SVG, WebP formatlari qo\'llab-quvvatlanadi' : 'Поддерживаются форматы PNG, JPG, SVG, WebP'}
+                      </span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handlePrintArtworkUpload} 
+                        className="hidden" 
+                      />
+                    </label>
                   )}
                 </div>
               </div>
@@ -2051,51 +2777,99 @@ export default function OrderDetailModal({
             {/* 9. VISHIVKA TAB */}
             {activeTab === 'vishivka' && (
               <div className="space-y-4">
-                <div>
-                  <h4 className="text-base font-extrabold text-white flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    {curr.vishivka}
-                  </h4>
-                  <p className="text-slate-400 text-[11px] mt-0.5">{lang === 'uz' ? 'Vishivka (Kashtachilik) tafsilotlari' : 'Параметры вышивки эмблем и узоров'}</p>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-950 p-4 rounded-2xl border border-slate-800">
+                  <div>
+                    <h4 className="text-base font-extrabold text-white flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-400" />
+                      {curr.vishivka} (Вышивка)
+                    </h4>
+                    <p className="text-slate-400 text-[11px] mt-0.5">
+                      {lang === 'uz' 
+                        ? 'Kashtachilik (vishivka) andozasi va etalon logotipi' 
+                        : 'Эталонный эскиз вышивки и логотипа для вышивального цеха'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-bold">{curr.status}:</span>
+                    <select
+                      value={vishivkaStatus}
+                      onChange={(e) => setVishivkaStatus(e.target.value)}
+                      className="px-3 py-1.5 bg-slate-900 border border-slate-700/80 rounded-xl text-xs text-white focus:outline-hidden font-bold"
+                    >
+                      <option value="yoq">{curr.status_yoq}</option>
+                      <option value="kutilmoqda">{curr.status_kutilmoqda}</option>
+                      <option value="bajarilmoqda">{curr.status_bajarilmoqda}</option>
+                      <option value="yakunlandi">{curr.status_yakunlandi}</option>
+                    </select>
+                  </div>
                 </div>
 
-                <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] text-slate-400">{lang === 'uz' ? 'Vishivka nomi / Dizayni' : 'Название вышивки / узора'}</label>
-                      <input
-                        type="text"
-                        placeholder={lang === 'uz' ? 'Masalan: Stark emblem, Lion...' : 'Например: герб Stark, Лев...'}
-                        value={vishivkaName}
-                        onChange={(e) => setVishivkaName(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden focus:border-indigo-500"
-                      />
-                    </div>
+                {/* Dedicated Clean Image Upload / Preview Zone */}
+                <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800">
+                  {vishivkaArtworkUrl ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-slate-300 flex items-center gap-2">
+                          <CheckCircle className="w-4 h-4 text-indigo-400" />
+                          {lang === 'uz' ? 'Tasdiqlangan vishivka eskizi:' : 'Утвержденный эскиз вышивки:'}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setZoomImageModal({ url: vishivkaArtworkUrl, title: lang === 'uz' ? 'Vishivka Eskizi' : 'Эскиз вышивки' })}
+                            className="px-3 py-1.5 bg-slate-900 hover:bg-slate-850 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+                            <span>{lang === 'uz' ? 'Kattalashtirish (Zoom)' : 'Увеличить (Zoom)'}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setVishivkaArtworkUrl(null)}
+                            className="px-3 py-1.5 bg-rose-950/40 hover:bg-rose-900/60 border border-rose-900/40 text-rose-300 text-xs font-bold rounded-xl flex items-center gap-1.5 cursor-pointer transition-all"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                            <span>{lang === 'uz' ? 'O\'chirish' : 'Удалить'}</span>
+                          </button>
+                        </div>
+                      </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-[11px] text-slate-400">{curr.status}</label>
-                      <select
-                        value={vishivkaStatus}
-                        onChange={(e) => setVishivkaStatus(e.target.value)}
-                        className="w-full px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden"
+                      <div 
+                        onClick={() => setZoomImageModal({ url: vishivkaArtworkUrl, title: lang === 'uz' ? 'Vishivka Eskizi' : 'Эскиз вышивки' })}
+                        className="relative group w-full max-h-[380px] rounded-xl overflow-hidden bg-slate-900/80 border border-slate-800 flex items-center justify-center p-3 cursor-pointer shadow-inner"
                       >
-                        <option value="yoq">{curr.status_yoq}</option>
-                        <option value="kutilmoqda">{curr.status_kutilmoqda}</option>
-                        <option value="bajarilmoqda">{curr.status_bajarilmoqda}</option>
-                        <option value="yakunlandi">{curr.status_yakunlandi}</option>
-                      </select>
+                        <img 
+                          src={vishivkaArtworkUrl} 
+                          alt="Vishivka Design" 
+                          className="max-h-[360px] w-auto max-w-full object-contain rounded-lg transition-transform duration-200 group-hover:scale-[1.01]" 
+                        />
+                        <div className="absolute inset-0 bg-slate-950/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                          <span className="bg-slate-900/90 text-white text-xs font-bold px-3 py-1.5 rounded-lg border border-slate-700 flex items-center gap-1.5 shadow-lg">
+                            <Maximize2 className="w-3.5 h-3.5 text-indigo-400" />
+                            {lang === 'uz' ? 'Kattalashtirib ko\'rish' : 'Нажмите для зума'}
+                          </span>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <label className="block text-[11px] text-slate-400">{curr.details}</label>
-                    <textarea
-                      placeholder={lang === 'uz' ? 'Kashta iplari ranglari, chok soni va andoza...' : 'Цвета вышивальных нитей, количество стежков...'}
-                      value={vishivkaDetails}
-                      onChange={(e) => setVishivkaDetails(e.target.value)}
-                      className="w-full h-24 px-3 py-2 bg-slate-900 border border-slate-800 rounded-xl text-xs text-white focus:outline-hidden"
-                    />
-                  </div>
+                  ) : (
+                    <label className="border-2 border-dashed border-slate-800 hover:border-indigo-500/50 rounded-2xl p-10 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-900/30 group">
+                      <div className="p-4 bg-slate-900 group-hover:bg-indigo-950/30 rounded-2xl text-slate-400 group-hover:text-indigo-400 transition-colors mb-3">
+                        <Upload className="w-8 h-8" />
+                      </div>
+                      <span className="text-sm font-extrabold text-white text-center">
+                        {lang === 'uz' ? 'Vishivka (kashta) andozasi rasmini yuklang' : 'Загрузите изображение вышивки или узора'}
+                      </span>
+                      <span className="text-xs text-slate-500 mt-1 text-center">
+                        {lang === 'uz' ? 'PNG, JPG, SVG, WebP formatlari qo\'llab-quvvatlanadi' : 'Поддерживаются форматы PNG, JPG, SVG, WebP'}
+                      </span>
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleVishivkaArtworkUpload} 
+                        className="hidden" 
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
             )}
@@ -2338,7 +3112,7 @@ export default function OrderDetailModal({
                     </thead>
                     <tbody className="divide-y divide-slate-850">
                       {sizeKeys.map(size => {
-                        const orderQty = order.sizes[size] || 0;
+                        const orderQty = orderSizes[size] !== undefined ? orderSizes[size] : (order.sizes[size] || 0);
                         const cutQty = raskroy[size] || 0;
                         const distQty = razdacha[size] || 0;
                         const sewnQty = poshiv[size] || 0;
@@ -2420,9 +3194,29 @@ export default function OrderDetailModal({
                     </p>
                   </div>
 
-                  <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-full text-xs font-bold font-mono">
-                    {orderIssues.length} {lang === 'uz' ? 'та муаммо' : 'сообщений'}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-rose-500/10 text-rose-400 border border-rose-500/30 px-3 py-1 rounded-full text-xs font-bold font-mono">
+                      {orderIssues.length} {lang === 'uz' ? 'та муаммо' : 'сообщений'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={handleExportIssuesPdf}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-rose-950/50 hover:bg-rose-900/60 border border-rose-800/60 text-rose-300 hover:text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm"
+                      title={lang === 'uz' ? 'PDF hisobot yuklab olish' : 'Экспорт в PDF'}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>PDF</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExportIssuesExcel}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950/50 hover:bg-emerald-900/60 border border-emerald-800/60 text-emerald-300 hover:text-white rounded-xl text-xs font-bold cursor-pointer transition-all shadow-sm"
+                      title={lang === 'uz' ? 'Excel hisobot yuklab olish' : 'Экспорт в Excel'}
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Excel</span>
+                    </button>
+                  </div>
                 </div>
 
                 {/* New Issue Input Form */}
@@ -2734,6 +3528,37 @@ export default function OrderDetailModal({
             onApply={handleApplyStageImport}
             lang={lang}
           />
+        )}
+
+        {/* Full Image Zoom Modal */}
+        {zoomImageModal && (
+          <div 
+            className="fixed inset-0 z-[120] bg-slate-950/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in"
+            onClick={() => setZoomImageModal(null)}
+          >
+            <div 
+              className="relative max-w-4xl max-h-[90vh] bg-slate-900 border border-slate-800 rounded-2xl p-4 shadow-2xl flex flex-col items-center"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-full flex items-center justify-between pb-3 border-b border-slate-800 mb-3">
+                <span className="text-sm font-extrabold text-white">{zoomImageModal.title}</span>
+                <button
+                  type="button"
+                  onClick={() => setZoomImageModal(null)}
+                  className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl cursor-pointer transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="overflow-auto max-h-[75vh] flex items-center justify-center">
+                <img 
+                  src={zoomImageModal.url} 
+                  alt={zoomImageModal.title} 
+                  className="max-h-[75vh] max-w-full object-contain rounded-xl shadow-lg" 
+                />
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Resize handles */}

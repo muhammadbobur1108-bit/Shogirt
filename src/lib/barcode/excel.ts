@@ -145,7 +145,7 @@ export async function importBarcodesFromExcel(file: File | ArrayBuffer): Promise
 export function exportBarcodesToExcel(items: BarcodeItem[], filename: string = 'Shtrix_kodlar_Chust_Textile.xlsx') {
   const exportData = items.map((item, idx) => ({
     '№': idx + 1,
-    'Rasm / Fayl nomi': item.fileName,
+    'Model / Mahsulot': item.model || item.fileName || '',
     'Shtrix-kod raqami': item.formattedCode || item.sscc || item.rawCode,
     'Holati': item.status === 'OK' ? 'OK (Aniq o\'qildi)'
             : item.status === 'OCR' ? 'OCR (Yozuvdan o\'qildi)'
@@ -156,7 +156,8 @@ export function exportBarcodesToExcel(items: BarcodeItem[], filename: string = '
     'Rang (Цвет)': item.color || '',
     'O\'lcham (Размер)': item.size || '',
     'Bo\'y (Рост)': item.rost || '',
-    'Nusxalar soni': item.copies || 4,
+    'Zakaz soni': item.quantity || item.copies || 0,
+    'Chop nusxasi': item.copies || 4,
     'Izoh': item.notes || ''
   }));
 
@@ -165,14 +166,15 @@ export function exportBarcodesToExcel(items: BarcodeItem[], filename: string = '
   // Ustunlar kengligini chiroyli moslash
   worksheet['!cols'] = [
     { wch: 6 },   // №
-    { wch: 24 },  // Rasm nomi
+    { wch: 26 },  // Model
     { wch: 30 },  // Shtrix-kod
-    { wch: 32 },  // Holati
-    { wch: 22 },  // Rang
+    { wch: 30 },  // Holati
+    { wch: 18 },  // Rang
     { wch: 14 },  // O'lcham
     { wch: 14 },  // Rost
-    { wch: 14 },  // Nusxa
-    { wch: 35 }   // Izoh
+    { wch: 14 },  // Zakaz soni
+    { wch: 14 },  // Chop nusxasi
+    { wch: 32 }   // Izoh
   ];
 
   const workbook = XLSX.utils.book_new();

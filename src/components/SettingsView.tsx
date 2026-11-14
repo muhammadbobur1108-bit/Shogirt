@@ -37,12 +37,21 @@ import {
   FileSpreadsheet,
   Search,
   HardDriveDownload,
-  Info
+  Info,
+  CloudRain,
+  Sun,
+  Wind,
+  Snowflake,
+  Sparkles,
+  Power
 } from 'lucide-react';
+import { WeatherEffect } from './WeatherOverlay';
 
 interface SettingsViewProps {
   lang: Language;
   onChangeLanguage: (newLang: Language) => void;
+  weatherEffect?: WeatherEffect;
+  onWeatherEffectChange?: (effect: WeatherEffect) => void;
   langList: Language[];
   onResetAllData?: () => void;
   onLoadDemoData?: () => void;
@@ -74,6 +83,8 @@ interface PreviewModalState {
 export default function SettingsView({ 
   lang, 
   onChangeLanguage, 
+  weatherEffect = 'none',
+  onWeatherEffectChange,
   langList,
   onResetAllData,
   onLoadDemoData,
@@ -768,6 +779,56 @@ export default function SettingsView({
                 <div className="text-indigo-400">{lang === 'ru' ? 'Роль:' : 'Roli:'} <strong>{currentUser?.role}</strong></div>
                 <div className="text-emerald-400">{lang === 'ru' ? 'Уровень доступа:' : 'Ruxsat darajasi:'} <strong>{currentUser?.role === 'super_admin' ? (lang === 'ru' ? 'Полный (Супер Админ)' : 'To\'liq (Super Admin)') : (lang === 'ru' ? 'Администратор раздела' : 'Bo\'lim administratori')}</strong></div>
               </div>
+            </div>
+          </div>
+
+          {/* Weather & Holiday Ambiance Effects */}
+          <div className="bg-[#111827] border border-slate-800 p-5 rounded-2xl shadow-xl space-y-4 md:col-span-2">
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                {lang === 'uz' ? "Ob-havo va Bayram Effektlari" : "Эффекты погоды и праздников"}
+              </h4>
+              <span className="text-[10px] bg-indigo-500/10 text-indigo-300 px-2.5 py-0.5 rounded-full font-mono border border-indigo-500/20">
+                {lang === 'uz' ? "Animatsiyali vizual fon" : "Анимированный фон ERP"}
+              </span>
+            </div>
+
+            <p className="text-slate-400 text-xs leading-relaxed">
+              {lang === 'uz'
+                ? "Tizim ekranida ob-havo (yomg'ir, quyosh, shamol, qor) yoki bayramona salyut/konfetti effektlarini yoqing. Ushbu parametr xotirada saqlanadi."
+                : "Включите визуальные эффекты погоды (дождь, солнце, ветер, снег) или праздничные конфетти на экране ERP. Настройка сохраняется автоматически."}
+            </p>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-7 gap-3">
+              {[
+                { id: 'none' as WeatherEffect, labelUz: "O'chirilgan", labelRu: "Выкл", icon: Power, color: "text-slate-400", bg: "border-slate-800 hover:border-slate-700" },
+                { id: 'new_year' as WeatherEffect, labelUz: "Yangi Yil", labelRu: "Новый Год", icon: Sparkles, color: "text-emerald-400", bg: "border-emerald-900/40 hover:border-emerald-700" },
+                { id: 'rain' as WeatherEffect, labelUz: "Yomg'ir", labelRu: "Дождь", icon: CloudRain, color: "text-cyan-400", bg: "border-cyan-900/40 hover:border-cyan-700" },
+                { id: 'sun' as WeatherEffect, labelUz: "Quyosh", labelRu: "Солнце", icon: Sun, color: "text-amber-400", bg: "border-amber-900/40 hover:border-amber-700" },
+                { id: 'wind' as WeatherEffect, labelUz: "Shamol", labelRu: "Ветер", icon: Wind, color: "text-teal-400", bg: "border-teal-900/40 hover:border-teal-700" },
+                { id: 'snow' as WeatherEffect, labelUz: "Qor", labelRu: "Снег", icon: Snowflake, color: "text-blue-300", bg: "border-blue-900/40 hover:border-blue-700" },
+                { id: 'holidays' as WeatherEffect, labelUz: "Bayram", labelRu: "Праздник", icon: Sparkles, color: "text-pink-400", bg: "border-pink-900/40 hover:border-pink-700" },
+              ].map(item => {
+                const isSelected = weatherEffect === item.id;
+                const IconComponent = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => onWeatherEffectChange?.(item.id)}
+                    className={`p-3.5 rounded-xl border flex flex-col items-center justify-center gap-2 transition-all cursor-pointer ${
+                      isSelected
+                        ? 'bg-indigo-600/20 border-indigo-500 text-white shadow-lg ring-1 ring-indigo-500 font-bold'
+                        : `bg-slate-900/80 text-slate-300 ${item.bg}`
+                    }`}
+                  >
+                    <IconComponent className={`w-5 h-5 ${item.color}`} />
+                    <span className="text-[11px] font-medium">{lang === 'uz' ? item.labelUz : item.labelRu}</span>
+                    {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse" />}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
